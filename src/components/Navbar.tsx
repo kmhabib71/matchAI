@@ -12,6 +12,7 @@ export default function Navbar() {
   const { data: session, status } = useSession();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -34,6 +35,21 @@ export default function Navbar() {
     // Listen for storage changes
     window.addEventListener("storage", checkAuth);
     return () => window.removeEventListener("storage", checkAuth);
+  }, [session]);
+
+  // Check if user is admin
+  useEffect(() => {
+    if (session?.user?.email) {
+      // Fetch user role from API
+      fetch(`/api/users/me`)
+        .then((res) => res.json())
+        .then((data) => {
+          setIsAdmin(data?.roles?.includes("admin"));
+        })
+        .catch((err) => {
+          console.error("Error checking admin status:", err);
+        });
+    }
   }, [session]);
 
   // Debug logging
@@ -116,6 +132,51 @@ export default function Navbar() {
                 >
                   Profile
                 </Link>
+                {isAdmin && (
+                  <div className="relative group">
+                    <button
+                      className={`flex items-center ${
+                        shouldShowBackground ? "text-gray-700" : "text-white"
+                      } hover:text-purple-600 transition-colors`}
+                    >
+                      Admin
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-4 w-4 ml-1"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 9l-7 7-7-7"
+                        />
+                      </svg>
+                    </button>
+                    <div className="absolute left-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                      <Link
+                        href="/admin/users/admins"
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-purple-100"
+                      >
+                        Manage Admins
+                      </Link>
+                      <Link
+                        href="/admin/users/test"
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-purple-100"
+                      >
+                        Test Users
+                      </Link>
+                      <Link
+                        href="/admin/users"
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-purple-100"
+                      >
+                        Manage Users
+                      </Link>
+                    </div>
+                  </div>
+                )}
               </>
             )}
 

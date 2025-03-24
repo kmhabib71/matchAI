@@ -4,6 +4,7 @@ import "./globals.css";
 import { cn } from "@/lib/utils";
 import Providers from "./providers";
 import Navbar from "@/components/Navbar";
+import Script from "next/script";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -35,6 +36,39 @@ export default function RootLayout({
         )}
         suppressHydrationWarning
       >
+        <Script id="port-redirect">
+          {`
+            // Check if we're trying to access the wrong port
+            if (window.location.port === '3000' && window.location.hostname === 'localhost') {
+              // Try other ports
+              const tryPorts = [3001, 3002, 3003, 3004, 3005];
+              
+              // Function to check if a port is available
+              const checkPort = async (port) => {
+                try {
+                  const response = await fetch(\`http://localhost:\${port}/api/health\`, { 
+                    method: 'HEAD',
+                    mode: 'no-cors',
+                    cache: 'no-cache',
+                  });
+                  return true;
+                } catch (e) {
+                  return false;
+                }
+              };
+              
+              // Check ports and redirect
+              (async () => {
+                for (const port of tryPorts) {
+                  if (await checkPort(port)) {
+                    window.location.href = \`http://localhost:\${port}\${window.location.pathname}\`;
+                    break;
+                  }
+                }
+              })();
+            }
+          `}
+        </Script>
         <Providers>
           <Navbar />
           <main className="pt-16">{children}</main>

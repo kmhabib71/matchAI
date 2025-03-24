@@ -2,6 +2,9 @@ import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import FacebookProvider from "next-auth/providers/facebook";
+import { dbConnect } from "./dbConnect";
+import { UserRole } from "@/models/User";
+import bcrypt from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -12,20 +15,48 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        // This is a mock implementation
-        // In a real app, you would verify against your database
-        if (
-          credentials?.email === "user@example.com" &&
-          credentials?.password === "password"
-        ) {
-          return {
-            id: "1",
-            name: "Demo User",
-            email: "user@example.com",
-            image: "https://randomuser.me/api/portraits/men/32.jpg",
-          };
+        if (!credentials?.email || !credentials?.password) {
+          return null;
         }
-        return null;
+
+        try {
+          // Connect to MongoDB
+          await dbConnect();
+
+          // Get User model
+          const { default: User } = await import("@/models/User");
+
+          // Find user
+          const user = await User.findOne({ email: credentials.email });
+
+          if (!user) {
+            return null;
+          }
+
+          // Compare password
+          const isPasswordValid = await user.comparePassword(
+            credentials.password
+          );
+
+          if (!isPasswordValid) {
+            return null;
+          }
+
+          // Check if user has admin role
+          const isAdmin = user.roles.includes(UserRole.ADMIN);
+
+          return {
+            id: user._id.toString(),
+            name: user.name,
+            email: user.email,
+            image: user.profileImage,
+            isAdmin,
+            roles: user.roles,
+          };
+        } catch (error) {
+          console.error("Auth error:", error);
+          return null;
+        }
       },
     }),
     GoogleProvider({
@@ -47,14 +78,16 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
-        // You could add additional user data here
+        token.isAdmin = user.isAdmin || false;
+        token.roles = user.roles || [UserRole.USER];
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
-        // You could add additional user data here
+        session.user.isAdmin = token.isAdmin as boolean;
+        session.user.roles = token.roles as string[];
       }
       return session;
     },

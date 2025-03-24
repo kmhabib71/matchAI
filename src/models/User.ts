@@ -14,6 +14,15 @@ export interface IVerificationRecord {
   metadata?: Record<string, any>;
 }
 
+// Interface for personality quiz answers
+export interface IPersonalityQuiz {
+  completed: boolean;
+  answers: Record<string, string>;
+  completedAt?: Date;
+  personalityType?: string;
+  traits?: string[];
+}
+
 // Interface for user interactions
 export interface IUserInteractions {
   nextMatchClicks: number;
@@ -96,6 +105,7 @@ export interface IUser extends Document {
   interactions?: IUserInteractions;
   verifications?: IVerificationRecord[];
   verificationScore?: number;
+  personalityQuiz?: IPersonalityQuiz;
   roles: UserRole[];
   comparePassword(candidatePassword: string): Promise<boolean>;
 }
@@ -165,6 +175,13 @@ const UserSchema: Schema = new Schema(
       messagesReceived: { type: Number, default: 0 },
       lastActive: { type: Date },
     },
+    personalityQuiz: {
+      completed: { type: Boolean, default: false },
+      answers: { type: Map, of: String },
+      completedAt: { type: Date },
+      personalityType: { type: String },
+      traits: { type: [String] },
+    },
     verifications: [
       {
         method: {
@@ -231,23 +248,30 @@ UserSchema.methods.comparePassword = async function (
       return false;
     }
 
-    console.log("Comparing password...");
-    // Use a direct comparison to avoid any issues
-    const isMatch = await bcrypt.compare(
-      candidatePassword.toString(),
-      this.password.toString()
-    );
-    console.log(`Password match result: ${isMatch}`);
-    return isMatch;
+    return await bcrypt.compare(candidatePassword, this.password);
   } catch (error) {
-    console.error("Error comparing password:", error);
+    console.error("Error comparing passwords:", error);
     return false;
   }
 };
 
-// Delete the model if it exists to prevent OverwriteModelError
-const User =
-  (mongoose.models.User as Model<IUser>) ||
-  mongoose.model<IUser>("User", UserSchema);
+// Check if model already exists to prevent overwriting
+// This prevents errors during hot reloading
+let UserModel: Model<IUser>;
 
-export default User;
+// Only create model on the server side
+if (typeof window === "undefined") {
+  try {
+    // Try to get existing model first
+    UserModel = mongoose.model<IUser>("User");
+  } catch {
+    // Model doesn't exist yet, create it
+    UserModel = mongoose.model<IUser>("User", UserSchema);
+  }
+} else {
+  // Create a placeholder for client-side that won't be used
+  // This prevents errors when this file is imported on the client
+  UserModel = {} as Model<IUser>;
+}
+
+export default UserModel;

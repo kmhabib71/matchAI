@@ -3,50 +3,241 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
+  const router = useRouter();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
+  const [currentQuestion, setCurrentQuestion] = useState(0);
   const [isProfileComplete, setIsProfileComplete] = useState(false);
+  const [answers, setAnswers] = useState({});
+  const [quizStarted, setQuizStarted] = useState(false);
+  const [quizCompleted, setQuizCompleted] = useState(false);
 
-  // This would normally be handled by your auth system
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const personalityQuestions = [
+    {
+      id: 1,
+      question: "How would you describe your personality?",
+      options: ["Introvert", "Extrovert", "Ambivert"],
+      description: "Helps define social compatibility and conversation flow.",
+    },
+    {
+      id: 2,
+      question: "Are you more emotional or logical in relationships?",
+      options: ["Emotional", "Logical", "Balanced"],
+      description:
+        "Core trait for emotional connection and decision-making style.",
+    },
+    {
+      id: 3,
+      question: "How do you handle conflicts in a relationship?",
+      options: ["Talk openly", "Need space", "Stay silent", "Avoid it"],
+      description: "Reveals communication and conflict-resolution style.",
+    },
+    {
+      id: 4,
+      question: "What is your love language?",
+      options: ["Words", "Quality Time", "Acts of Service", "Touch", "Gifts"],
+      description: "Key to understanding how you give/receive love.",
+    },
+    {
+      id: 5,
+      question: "What type of relationship are you looking for?",
+      options: ["Serious", "Casual", "Friendship", "Marriage"],
+      description: "Filters match intent clearly.",
+    },
+    {
+      id: 6,
+      question: "How soon do you want to get married?",
+      options: [
+        "Within 1 year",
+        "2–5 years",
+        "No rush",
+        "Not thinking about it",
+      ],
+      description: "Important for aligning long-term goals.",
+    },
+    {
+      id: 7,
+      question: "Do you want kids in the future?",
+      options: ["Yes", "Maybe", "No"],
+      description: "A major compatibility factor.",
+    },
+    {
+      id: 8,
+      question: "What are your dealbreakers in a relationship?",
+      options: [
+        "Cheating",
+        "Lying",
+        "No ambition",
+        "No connection",
+        "Different values",
+      ],
+      description: "Helps the system avoid bad matches.",
+    },
+    {
+      id: 9,
+      question: "How important is religion or spirituality in your life?",
+      options: ["Very", "Somewhat", "Not at all"],
+      description: "Aligns personal values and worldviews.",
+    },
+    {
+      id: 10,
+      question: "How do you view gender roles in a relationship?",
+      options: ["Traditional", "Equal partnership", "Flexible"],
+      description: "Important for cultural & value alignment.",
+    },
+    {
+      id: 11,
+      question: "What makes you feel most valued in a relationship?",
+      options: [
+        "Loyalty",
+        "Support",
+        "Passion",
+        "Shared goals",
+        "Understanding",
+      ],
+      description: "Reveals emotional needs.",
+    },
+    {
+      id: 12,
+      question: "What is your daily lifestyle like?",
+      options: ["Early riser", "Night owl", "Flexible"],
+      description: "Helps align habits and routines.",
+    },
+    {
+      id: 13,
+      question: "Do you prefer a healthy lifestyle?",
+      options: ["Yes, very", "I try", "Not really"],
+      description: "Useful for aligning health goals.",
+    },
+    {
+      id: 14,
+      question: "How important is physical fitness to you?",
+      options: ["Very", "Somewhat", "Not important"],
+      description: "Affects lifestyle and long-term habits.",
+    },
+    {
+      id: 15,
+      question: "Do you drink alcohol or smoke?",
+      options: ["Yes", "Occasionally", "Never"],
+      description: "Lifestyle habits that affect compatibility.",
+    },
+    {
+      id: 16,
+      question: "What do you do for a living?",
+      options: ["Student", "Freelancer", "Business Owner", "Employee", "Other"],
+      description: "Career status for ambition alignment.",
+    },
+    {
+      id: 17,
+      question: "How important is career success to you?",
+      options: ["Very", "Somewhat", "Not a priority"],
+      description: "Understands ambition level.",
+    },
+    {
+      id: 18,
+      question: "Would you relocate for love?",
+      options: ["Yes", "Maybe", "No"],
+      description: "Helps with geographic matching.",
+    },
+    {
+      id: 19,
+      question: "What kind of social time do you prefer?",
+      options: ["Big groups", "One-on-one talks", "Both"],
+      description: "Social energy and compatibility.",
+    },
+    {
+      id: 20,
+      question: "What do you value most in a partner?",
+      options: [
+        "Honesty",
+        "Humor",
+        "Intelligence",
+        "Loyalty",
+        "Ambition",
+        "Family-focused",
+      ],
+      description: "Direct match with partner expectations.",
+    },
+  ];
 
   const openMatchModal = () => {
-    // In a real app, you would check if user is logged in and has a complete profile
-    if (!isLoggedIn) {
-      // Redirect to register if not logged in
-      window.location.href = "/register";
-      return;
-    }
-
-    if (isProfileComplete) {
-      // If profile is complete, go to matching page
-      window.location.href = "/matching";
-    } else {
-      // Otherwise show questionnaire modal
-      setIsModalOpen(true);
-    }
+    setIsModalOpen(true);
+    setCurrentQuestion(0);
+    setAnswers({});
+    setQuizStarted(false);
+    setQuizCompleted(false);
   };
 
   const closeModal = () => {
     setIsModalOpen(false);
-    setCurrentStep(1);
+    setCurrentQuestion(0);
+    setQuizStarted(false);
   };
 
-  const nextStep = () => {
-    if (currentStep < 3) {
-      setCurrentStep(currentStep + 1);
+  const startQuiz = () => {
+    setQuizStarted(true);
+  };
+
+  const handleAnswerSelect = (answer: string) => {
+    setAnswers({
+      ...answers,
+      [personalityQuestions[currentQuestion].id]: answer,
+    });
+
+    if (currentQuestion < personalityQuestions.length - 1) {
+      setCurrentQuestion(currentQuestion + 1);
     } else {
-      // Submit form and redirect to matching
-      window.location.href = "/matching";
+      // All questions answered, mark as completed
+      setQuizCompleted(true);
     }
   };
 
-  const prevStep = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
+  const prevQuestion = () => {
+    if (currentQuestion > 0) {
+      setCurrentQuestion(currentQuestion - 1);
     }
+  };
+
+  const findMatches = () => {
+    // Store answers in localStorage for the matching page to use
+    localStorage.setItem("personality_answers", JSON.stringify(answers));
+
+    // Reset match counters to start fresh
+    localStorage.removeItem("total_matches_viewed");
+    localStorage.removeItem("viewed_matches");
+    localStorage.removeItem("match_history");
+
+    // If user is logged in, attempt to save quiz data to their profile
+    // This is async but we don't need to wait for it to complete
+    const saveQuizToProfile = async () => {
+      try {
+        const response = await fetch("/api/users/quiz", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            answers,
+            completedAt: new Date().toISOString(),
+          }),
+        });
+
+        if (!response.ok) {
+          console.error("Failed to save quiz to profile");
+        }
+      } catch (error) {
+        console.error("Error saving quiz data:", error);
+      }
+    };
+
+    // Attempt to save quiz data to profile
+    saveQuizToProfile();
+
+    // Redirect to the matches page
+    router.push("/matches");
   };
 
   return (
@@ -79,7 +270,7 @@ export default function Home() {
                 onClick={openMatchModal}
                 className="bg-white text-purple-700 hover:bg-gray-100 px-10 py-4 rounded-full font-bold text-xl transition-all transform hover:scale-105 shadow-xl"
               >
-                Get Started for Free
+                Find your match
               </button>
             </div>
 
@@ -1053,10 +1244,7 @@ export default function Home() {
               href="/register"
               className="bg-white text-purple-600 hover:bg-gray-100 px-8 py-4 rounded-full font-bold text-xl inline-block transition-all transform hover:scale-105 shadow-xl"
               onClick={(e) => {
-                if (isLoggedIn) {
-                  e.preventDefault();
-                  openMatchModal();
-                }
+                openMatchModal();
               }}
             >
               Start Matching Now
@@ -1169,7 +1357,7 @@ export default function Home() {
         </div>
       </footer>
 
-      {/* Modal Component */}
+      {/* Modal Component - UPDATED FOR PERSONALITY QUESTIONS */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -1177,9 +1365,9 @@ export default function Home() {
             <div className="p-6 border-b border-gray-200">
               <div className="flex justify-between items-center">
                 <h3 className="text-2xl font-bold text-purple-700">
-                  {currentStep === 1 && "Tell Us About Yourself"}
-                  {currentStep === 2 && "Your Partner Preferences"}
-                  {currentStep === 3 && "Relationship Goals"}
+                  {!quizStarted && !quizCompleted && "Find Your Perfect Match"}
+                  {quizStarted && !quizCompleted && "Personality Match Quiz"}
+                  {quizCompleted && "Quiz Completed!"}
                 </h3>
                 <button
                   onClick={closeModal}
@@ -1201,280 +1389,225 @@ export default function Home() {
                   </svg>
                 </button>
               </div>
-              {/* Progress Bar */}
-              <div className="mt-4 flex items-center">
-                <div className="flex-1">
-                  <div className="h-2 bg-gray-200 rounded-full">
-                    <div
-                      className="h-full bg-purple-600 rounded-full transition-all duration-300 ease-in-out"
-                      style={{ width: `${(currentStep / 3) * 100}%` }}
-                    ></div>
+              {/* Progress Bar - only show during quiz */}
+              {quizStarted && !quizCompleted && (
+                <div className="mt-4 flex items-center">
+                  <div className="flex-1">
+                    <div className="h-2 bg-gray-200 rounded-full">
+                      <div
+                        className="h-full bg-purple-600 rounded-full transition-all duration-300 ease-in-out"
+                        style={{
+                          width: `${
+                            ((currentQuestion + 1) /
+                              personalityQuestions.length) *
+                            100
+                          }%`,
+                        }}
+                      ></div>
+                    </div>
                   </div>
+                  <span className="ml-4 text-gray-600 font-medium">
+                    Question {currentQuestion + 1} of{" "}
+                    {personalityQuestions.length}
+                  </span>
                 </div>
-                <span className="ml-4 text-gray-600 font-medium">
-                  Step {currentStep} of 3
-                </span>
-              </div>
+              )}
             </div>
 
-            {/* Modal Body - Changes based on current step */}
+            {/* Modal Body */}
             <div className="p-6">
-              {/* Step 1: Personal Information */}
-              {currentStep === 1 && (
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-gray-700 font-medium mb-2">
-                      What's most important to you in a relationship?
-                    </label>
-                    <select className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent">
-                      <option value="">Select an option</option>
-                      <option value="communication">Communication</option>
-                      <option value="trust">Trust</option>
-                      <option value="attraction">Physical attraction</option>
-                      <option value="compatibility">Shared interests</option>
-                      <option value="values">Shared values</option>
-                    </select>
+              {/* Introduction Screen */}
+              {!quizStarted && !quizCompleted && (
+                <div className="text-center space-y-6">
+                  <div className="w-24 h-24 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg
+                      className="w-12 h-12 text-purple-600"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                      />
+                    </svg>
                   </div>
 
-                  <div>
-                    <label className="block text-gray-700 font-medium mb-2">
-                      How would you describe your personality?
-                    </label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="flex items-center bg-white p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-purple-50">
-                        <input
-                          type="checkbox"
-                          className="h-5 w-5 text-purple-600 mr-2"
-                        />
-                        <span>Outgoing</span>
-                      </label>
-                      <label className="flex items-center bg-white p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-purple-50">
-                        <input
-                          type="checkbox"
-                          className="h-5 w-5 text-purple-600 mr-2"
-                        />
-                        <span>Reserved</span>
-                      </label>
-                      <label className="flex items-center bg-white p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-purple-50">
-                        <input
-                          type="checkbox"
-                          className="h-5 w-5 text-purple-600 mr-2"
-                        />
-                        <span>Analytical</span>
-                      </label>
-                      <label className="flex items-center bg-white p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-purple-50">
-                        <input
-                          type="checkbox"
-                          className="h-5 w-5 text-purple-600 mr-2"
-                        />
-                        <span>Creative</span>
-                      </label>
-                    </div>
+                  <h4 className="text-xl font-semibold">
+                    Unlock Your Perfect Match!
+                  </h4>
+
+                  <p className="text-gray-600">
+                    Our AI-powered quiz analyzes your personality, preferences,
+                    and relationship style to find your most compatible matches.
+                  </p>
+
+                  <div className="bg-purple-50 p-4 rounded-lg">
+                    <ul className="text-left space-y-2">
+                      <li className="flex items-start">
+                        <svg
+                          className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                        <span className="text-gray-700">
+                          Just 20 quick questions
+                        </span>
+                      </li>
+                      <li className="flex items-start">
+                        <svg
+                          className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                        <span className="text-gray-700">
+                          Takes only 3 minutes
+                        </span>
+                      </li>
+                      <li className="flex items-start">
+                        <svg
+                          className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                        <span className="text-gray-700">
+                          95% accuracy in matching
+                        </span>
+                      </li>
+                    </ul>
                   </div>
 
-                  <div>
-                    <label className="block text-gray-700 font-medium mb-2">
-                      What do you enjoy doing in your free time?
-                    </label>
-                    <textarea
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                      rows={3}
-                      placeholder="Tell us about your hobbies and interests..."
-                    ></textarea>
+                  <div className="py-4">
+                    <button
+                      onClick={startQuiz}
+                      className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white px-10 py-4 rounded-full font-bold text-xl transition-all transform hover:scale-105 w-full md:w-auto"
+                    >
+                      Start Quiz
+                    </button>
                   </div>
+
+                  <p className="text-sm text-gray-500">
+                    Answer honestly for the best results!
+                  </p>
                 </div>
               )}
 
-              {/* Step 2: Partner Preferences */}
-              {currentStep === 2 && (
-                <div className="space-y-6">
+              {/* Quiz Questions */}
+              {quizStarted && !quizCompleted && (
+                <div className="space-y-6 relative">
                   <div>
-                    <label className="block text-gray-700 font-medium mb-2">
-                      Age range you're looking for
-                    </label>
-                    <div className="flex items-center space-x-4">
-                      <input
-                        type="number"
-                        placeholder="Min age"
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                      />
-                      <span>to</span>
-                      <input
-                        type="number"
-                        placeholder="Max age"
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                      />
-                    </div>
-                  </div>
+                    <h4 className="text-xl font-semibold mb-2">
+                      {personalityQuestions[currentQuestion].question}
+                    </h4>
+                    <p className="text-gray-500 mb-6">
+                      {personalityQuestions[currentQuestion].description}
+                    </p>
 
-                  <div>
-                    <label className="block text-gray-700 font-medium mb-2">
-                      How important are the following in a potential partner?
-                    </label>
-
-                    <div className="space-y-4">
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span>Education</span>
-                          <span className="text-purple-600 text-sm font-medium">
-                            Very Important
-                          </span>
-                        </div>
-                        <input
-                          type="range"
-                          min="1"
-                          max="5"
-                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
-                        />
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span>Physical Fitness</span>
-                          <span className="text-purple-600 text-sm font-medium">
-                            Somewhat Important
-                          </span>
-                        </div>
-                        <input
-                          type="range"
-                          min="1"
-                          max="5"
-                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
-                        />
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span>Shared Interests</span>
-                          <span className="text-purple-600 text-sm font-medium">
-                            Important
-                          </span>
-                        </div>
-                        <input
-                          type="range"
-                          min="1"
-                          max="5"
-                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
-                        />
-                      </div>
+                    <div className="grid grid-cols-1 gap-3">
+                      {personalityQuestions[currentQuestion].options.map(
+                        (option, index) => (
+                          <button
+                            key={index}
+                            onClick={() => handleAnswerSelect(option)}
+                            className="flex items-center bg-white p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-purple-50 hover:border-purple-300 transition-transform hover:scale-[1.02]"
+                          >
+                            <span className="font-medium">{option}</span>
+                          </button>
+                        )
+                      )}
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Step 3: Relationship Goals */}
-              {currentStep === 3 && (
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-gray-700 font-medium mb-2">
-                      What are you looking for?
-                    </label>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <label className="flex items-center bg-white p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-purple-50">
-                        <input
-                          type="radio"
-                          name="relationship-goal"
-                          className="h-5 w-5 text-purple-600 mr-2"
-                        />
-                        <span>Long-term relationship</span>
-                      </label>
-                      <label className="flex items-center bg-white p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-purple-50">
-                        <input
-                          type="radio"
-                          name="relationship-goal"
-                          className="h-5 w-5 text-purple-600 mr-2"
-                        />
-                        <span>Casual dating</span>
-                      </label>
-                      <label className="flex items-center bg-white p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-purple-50">
-                        <input
-                          type="radio"
-                          name="relationship-goal"
-                          className="h-5 w-5 text-purple-600 mr-2"
-                        />
-                        <span>Marriage</span>
-                      </label>
-                      <label className="flex items-center bg-white p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-purple-50">
-                        <input
-                          type="radio"
-                          name="relationship-goal"
-                          className="h-5 w-5 text-purple-600 mr-2"
-                        />
-                        <span>Friendship</span>
-                      </label>
-                    </div>
+              {/* Completion Screen */}
+              {quizCompleted && (
+                <div className="text-center space-y-6">
+                  <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg
+                      className="w-12 h-12 text-green-600"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
                   </div>
 
-                  <div>
-                    <label className="block text-gray-700 font-medium mb-2">
-                      Any dealbreakers we should know about?
-                    </label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="flex items-center bg-white p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-purple-50">
-                        <input
-                          type="checkbox"
-                          className="h-5 w-5 text-purple-600 mr-2"
-                        />
-                        <span>Smoking</span>
-                      </label>
-                      <label className="flex items-center bg-white p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-purple-50">
-                        <input
-                          type="checkbox"
-                          className="h-5 w-5 text-purple-600 mr-2"
-                        />
-                        <span>Children</span>
-                      </label>
-                      <label className="flex items-center bg-white p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-purple-50">
-                        <input
-                          type="checkbox"
-                          className="h-5 w-5 text-purple-600 mr-2"
-                        />
-                        <span>Long-distance</span>
-                      </label>
-                      <label className="flex items-center bg-white p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-purple-50">
-                        <input
-                          type="checkbox"
-                          className="h-5 w-5 text-purple-600 mr-2"
-                        />
-                        <span>Different religion</span>
-                      </label>
-                    </div>
-                  </div>
+                  <h4 className="text-xl font-semibold">
+                    Amazing! Quiz Completed
+                  </h4>
 
-                  <div>
-                    <label className="block text-gray-700 font-medium mb-2">
-                      Anything else you'd like your matches to know?
-                    </label>
-                    <textarea
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                      rows={3}
-                      placeholder="Additional information you'd like to share..."
-                    ></textarea>
+                  <p className="text-gray-600">
+                    Our AI is ready to analyze your answers and find your
+                    perfect matches.
+                  </p>
+
+                  <div className="py-4">
+                    <button
+                      onClick={findMatches}
+                      className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white px-10 py-4 rounded-full font-bold text-xl transition-all transform hover:scale-105"
+                    >
+                      See Your Matches
+                    </button>
                   </div>
                 </div>
               )}
             </div>
 
             {/* Modal Footer */}
-            <div className="p-6 border-t border-gray-200 flex justify-between">
-              <button
-                onClick={prevStep}
-                className={`px-5 py-2 rounded-full font-medium ${
-                  currentStep === 1
-                    ? "text-gray-400 cursor-not-allowed"
-                    : "text-purple-600 hover:bg-purple-50"
-                }`}
-                disabled={currentStep === 1}
-              >
-                Back
-              </button>
-              <button
-                onClick={nextStep}
-                className="bg-purple-600 text-white px-6 py-2 rounded-full font-medium hover:bg-purple-700"
-              >
-                {currentStep < 3 ? "Continue" : "Find My Matches"}
-              </button>
-            </div>
+            {quizStarted && !quizCompleted && (
+              <div className="p-6 border-t border-gray-200 flex justify-between">
+                <button
+                  onClick={prevQuestion}
+                  className={`px-5 py-2 rounded-full font-medium ${
+                    currentQuestion === 0
+                      ? "text-gray-400 cursor-not-allowed"
+                      : "text-purple-600 hover:bg-purple-50"
+                  }`}
+                  disabled={currentQuestion === 0}
+                >
+                  Back
+                </button>
+                <div className="text-gray-500">
+                  {currentQuestion + 1} of {personalityQuestions.length}{" "}
+                  questions
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

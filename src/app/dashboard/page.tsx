@@ -20,17 +20,20 @@ export default function Dashboard() {
   const [error, setError] = useState<string>("");
   const [remainingMatches, setRemainingMatches] = useState<number | null>(null);
   const [retryCount, setRetryCount] = useState<number>(0);
+  const [previousMatches, setPreviousMatches] = useState<any[]>([]);
+  const [loadingPreviousMatches, setLoadingPreviousMatches] =
+    useState<boolean>(false);
 
   useEffect(() => {
-    // Check if user is authenticated via NextAuth or direct login
-    const authToken = localStorage.getItem("authToken");
-    const userData = localStorage.getItem("user");
+    if (status === "loading") return;
 
-    if (status === "unauthenticated" && !authToken) {
+    if (status === "unauthenticated") {
       router.push("/login");
-    } else if ((status === "authenticated" || authToken) && retryCount < 3) {
-      fetchCurrentMatch();
+      return;
     }
+
+    fetchCurrentMatch();
+    fetchPreviousMatches();
   }, [status, router, retryCount]);
 
   const fetchCurrentMatch = async () => {
@@ -152,6 +155,44 @@ export default function Dashboard() {
 
     return () => clearTimeout(timer);
   }, []);
+
+  // Function to fetch previous matches
+  const fetchPreviousMatches = async () => {
+    try {
+      setLoadingPreviousMatches(true);
+      const response = await fetch("/api/matches/history");
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch previous matches");
+      }
+
+      const data = await response.json();
+
+      if (data.success && data.data) {
+        setPreviousMatches(data.data);
+      } else {
+        // Fallback to localStorage if API fails
+        const storedMatches = localStorage.getItem("previousMatches");
+        if (storedMatches) {
+          setPreviousMatches(JSON.parse(storedMatches));
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching previous matches:", error);
+      // Fallback to localStorage
+      const storedMatches = localStorage.getItem("previousMatches");
+      if (storedMatches) {
+        setPreviousMatches(JSON.parse(storedMatches));
+      }
+    } finally {
+      setLoadingPreviousMatches(false);
+    }
+  };
+
+  // Function to view match details
+  const viewMatchDetails = (matchId: string) => {
+    router.push(`/matches/${matchId}`);
+  };
 
   if ((status === "loading" || loading) && showSpinner) {
     return (
@@ -354,6 +395,123 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Previous Matches Section */}
+      <div className="mt-12 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="border-b border-gray-200 pb-5">
+          <h2 className="text-2xl font-bold leading-7 text-gray-900 dark:text-white sm:truncate sm:text-3xl">
+            Your Previous Matches
+          </h2>
+          <p className="mt-2 max-w-4xl text-sm text-gray-500 dark:text-gray-400">
+            Here are the people you've matched with previously. Click on a card
+            to view more details.
+          </p>
+        </div>
+
+        {loadingPreviousMatches ? (
+          <div className="mt-6 grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden h-64 animate-pulse"
+              >
+                <div className="h-32 bg-gray-200 dark:bg-gray-700"></div>
+                <div className="p-4">
+                  <div className="h-4 w-3/4 bg-gray-200 dark:bg-gray-700 rounded mb-3"></div>
+                  <div className="h-4 w-1/2 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
+                  <div className="h-4 w-5/6 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : previousMatches.length === 0 ? (
+          <div className="mt-10 text-center py-10 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+            <svg
+              className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.5}
+                d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+              />
+            </svg>
+            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">
+              No previous matches
+            </h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              You haven't matched with anyone yet. Start exploring matches to
+              find your perfect connection.
+            </p>
+            <div className="mt-6">
+              <Link
+                href="/matches"
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+              >
+                Find Matches
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-6 grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
+            {previousMatches.map((match) => (
+              <div
+                key={match.id || match._id}
+                className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden cursor-pointer transform transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
+                onClick={() => viewMatchDetails(match.id || match._id)}
+              >
+                <div className="h-40 relative">
+                  <Image
+                    src={match.profileImage || "/avatars/default.jpg"}
+                    alt={`${match.name}'s profile`}
+                    fill
+                    className="object-cover"
+                    unoptimized // Using placeholder images
+                  />
+                  {/* Compatibility badge */}
+                  <div className="absolute top-2 right-2 bg-gradient-to-r from-purple-600 to-pink-500 text-white text-sm font-bold rounded-full h-12 w-12 flex items-center justify-center shadow-lg">
+                    <div className="text-center">
+                      <span className="text-sm">
+                        {match.compatibilityScore}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      {match.name}, {match.age}
+                    </h3>
+                  </div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                    {typeof match.location === "object"
+                      ? `${match.location.city || ""}, ${
+                          match.location.country || ""
+                        }`
+                      : match.location || "Unknown location"}
+                  </div>
+                  {match.viewedAt && (
+                    <div className="text-xs text-gray-400 dark:text-gray-500">
+                      Matched on {new Date(match.viewedAt).toLocaleDateString()}
+                    </div>
+                  )}
+                  {match.hasProposal && (
+                    <div className="mt-2">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                        Proposal Sent
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

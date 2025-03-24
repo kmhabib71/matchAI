@@ -1,16 +1,17 @@
 import mongoose from "mongoose";
 
+// Log environment variable for debugging
+console.log("Environment check:", {
+  NODE_ENV: process.env.NODE_ENV,
+  MONGODB_URI_EXISTS: !!process.env.MONGODB_URI,
+});
+
+// Hardcode the MongoDB Atlas connection string directly to ensure it works
 const MONGODB_URI =
-  process.env.MONGODB_URI || "mongodb://localhost:27017/matchmaking";
+  "mongodb+srv://kmhabib:khurshida71@cluster0.qqlnw.mongodb.net/strangerchat?retryWrites=true&w=majority";
 
 // Skip MongoDB connection on the client side
 const isServer = typeof window === "undefined";
-
-if (!MONGODB_URI && isServer) {
-  throw new Error(
-    "Please define the MONGODB_URI environment variable inside .env.local"
-  );
-}
 
 /**
  * Global is used here to maintain a cached connection across hot reloads
@@ -48,12 +49,27 @@ async function dbConnect() {
       bufferCommands: false,
     };
 
-    cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
-      return mongoose;
-    });
+    console.log("Attempting MongoDB connection to Atlas...");
+
+    cached.promise = mongoose
+      .connect(MONGODB_URI, opts)
+      .then((mongoose) => {
+        console.log("MongoDB Atlas connected successfully");
+        return mongoose;
+      })
+      .catch((err) => {
+        console.error("MongoDB connection error:", err);
+        throw err;
+      });
   }
-  cached.conn = await cached.promise;
-  return cached.conn;
+
+  try {
+    cached.conn = await cached.promise;
+    return cached.conn;
+  } catch (error) {
+    console.error("Failed to establish MongoDB connection:", error);
+    throw error;
+  }
 }
 
 export default dbConnect;
