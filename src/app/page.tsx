@@ -4,16 +4,21 @@ import Link from "next/link";
 import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 export default function Home() {
   const router = useRouter();
+  const { data: session } = useSession();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [isProfileComplete, setIsProfileComplete] = useState(false);
-  const [answers, setAnswers] = useState({});
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [quizStarted, setQuizStarted] = useState(false);
   const [quizCompleted, setQuizCompleted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState("");
+  const [notAuthenticatedModal, setNotAuthenticatedModal] = useState(false);
 
   const personalityQuestions = [
     {
@@ -201,19 +206,80 @@ export default function Home() {
     }
   };
 
-  const findMatches = () => {
-    // Store answers in localStorage for the matching page to use
-    localStorage.setItem("personality_answers", JSON.stringify(answers));
+  // Function to determine personality type from quiz answers
+  const determinePersonalityType = (
+    answers: Record<string, string>
+  ): string => {
+    // Simple algorithm to determine MBTI type from answers
+    const types = {
+      E: 0,
+      I: 0, // Extraversion vs Introversion
+      S: 0,
+      N: 0, // Sensing vs Intuition
+      T: 0,
+      F: 0, // Thinking vs Feeling
+      J: 0,
+      P: 0, // Judging vs Perceiving
+    };
 
-    // Reset match counters to start fresh
-    localStorage.removeItem("total_matches_viewed");
-    localStorage.removeItem("viewed_matches");
-    localStorage.removeItem("match_history");
+    // Map specific question answers to MBTI dimensions
+    if (answers["1"] === "Introvert") types.I++;
+    else types.E++;
+    if (answers["2"] === "Emotional") types.F++;
+    else types.T++;
+    if (answers["3"] === "Avoid it") types.I++;
+    else types.E++;
+    if (answers["10"] === "Structured") types.J++;
+    else types.P++;
+    if (answers["12"] === "Early riser") types.J++;
+    else types.P++;
+    if (answers["13"] === "Yes, very") types.S++;
+    else types.N++;
+    if (answers["17"] === "Somewhat" || answers["17"] === "Yes") types.F++;
+    else types.T++;
 
-    // If user is logged in, attempt to save quiz data to their profile
-    // This is async but we don't need to wait for it to complete
-    const saveQuizToProfile = async () => {
-      try {
+    // Determine each dimension by comparing scores
+    const mbti = [
+      types.E > types.I ? "E" : "I",
+      types.S > types.N ? "S" : "N",
+      types.T > types.F ? "T" : "F",
+      types.J > types.P ? "J" : "P",
+    ].join("");
+
+    return mbti;
+  };
+
+  const submitQuiz = async () => {
+    try {
+      setIsSubmitting(true);
+      setSubmissionError("");
+
+      // Validate that all questions are answered
+      const unansweredQuestions = personalityQuestions.filter(
+        (q) => !answers[q.id] || answers[q.id] === ""
+      );
+
+      if (unansweredQuestions.length > 0) {
+        setSubmissionError(
+          `Please answer all questions. You have ${unansweredQuestions.length} unanswered question(s).`
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Store answers in localStorage for reference
+      localStorage.setItem("personality_answers", JSON.stringify(answers));
+      localStorage.setItem("quiz_completed", "true");
+
+      // Set a flag that we're coming from the quiz - will be used in matches page
+      sessionStorage.setItem("from_quiz", "true");
+
+      // Calculate personality type based on answers
+      const personalityType = determinePersonalityType(answers);
+      localStorage.setItem("personality_type", personalityType);
+
+      if (session) {
+        // If user is logged in, store quiz results in database
         const response = await fetch("/api/users/quiz", {
           method: "POST",
           headers: {
@@ -221,23 +287,30 @@ export default function Home() {
           },
           body: JSON.stringify({
             answers,
+            personalityType,
             completedAt: new Date().toISOString(),
           }),
         });
 
         if (!response.ok) {
-          console.error("Failed to save quiz to profile");
+          const data = await response.json();
+          throw new Error(data.error || "Something went wrong");
         }
-      } catch (error) {
-        console.error("Error saving quiz data:", error);
+
+        // Navigate to matches page to see matches
+        router.push("/matches");
+      } else {
+        // For not logged in users, redirect to matches page
+        router.push("/matches");
       }
-    };
-
-    // Attempt to save quiz data to profile
-    saveQuizToProfile();
-
-    // Redirect to the matches page
-    router.push("/matches");
+    } catch (error) {
+      console.error("Error submitting quiz:", error);
+      setSubmissionError(
+        "Failed to submit your quiz. Please try again or contact support."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -1578,7 +1651,7 @@ export default function Home() {
 
                   <div className="py-4">
                     <button
-                      onClick={findMatches}
+                      onClick={submitQuiz}
                       className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white px-10 py-4 rounded-full font-bold text-xl transition-all transform hover:scale-105"
                     >
                       See Your Matches

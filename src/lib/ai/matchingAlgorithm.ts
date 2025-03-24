@@ -391,7 +391,7 @@ export function generateMatchExplanation(
 /**
  * Returns personality traits based on MBTI type
  */
-function getPersonalityTraits(type: string): string[] {
+export function getPersonalityTraits(type: string): string[] {
   const traits: Record<string, string[]> = {
     INTJ: ["analytical", "strategic", "independent", "determined"],
     INTP: ["logical", "innovative", "curious", "adaptable"],

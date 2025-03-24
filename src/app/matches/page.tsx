@@ -93,66 +93,163 @@ export default function Matches() {
   const FREE_MATCH_LIMIT = 3; // Free users can see 3 matches
 
   useEffect(() => {
+    // Initialize viewed matches tracking from localStorage
+    let storedViewedMatches = localStorage.getItem("viewed_matches");
+    let viewedMatchesArray = storedViewedMatches
+      ? JSON.parse(storedViewedMatches)
+      : [];
+    setViewedMatches(viewedMatchesArray);
+
     // Check for personality quiz data
     const personalityData = localStorage.getItem("personality_answers");
-    if (personalityData) {
+    if (!personalityData) {
+      // If no quiz data found, redirect to home page to complete quiz
+      router.push("/");
+      return;
+    } else {
       setHasPersonalityData(true);
     }
 
-    // Load previously viewed matches from localStorage
-    const storedViewedMatches = localStorage.getItem("viewed_matches");
-    if (storedViewedMatches) {
-      setViewedMatches(JSON.parse(storedViewedMatches));
-    }
-
-    // Load total matches viewed count from localStorage
-    const storedTotalMatches = localStorage.getItem("total_matches_viewed");
-    if (storedTotalMatches) {
-      const totalCount = parseInt(storedTotalMatches, 10);
-      setTotalMatchesViewed(totalCount);
-    }
+    // Initialize variables we'll use in the function
+    let matchLimit = FREE_MATCH_LIMIT;
+    let isPremiumUser = false;
+    let totalMatches = 0;
 
     // Check subscription level and set appropriate limits
-    // In a real app, this would come from a user profile/subscription API
-    const checkSubscriptionLevel = () => {
-      // Mock implementation - this would be replaced with actual subscription check
-      const subscriptionLevel =
-        localStorage.getItem("subscription_level") || "free";
+    const checkSubscriptionLevel = async () => {
+      // Get subscription level from API or localStorage
+      let subscriptionLevel = "free";
+      let matchesViewedCount = 0;
 
-      if (subscriptionLevel === "premium_basic") {
-        setSubscribedMatchLimit(10);
-        setIsPremium(true);
-      } else if (subscriptionLevel === "premium_plus") {
-        setSubscribedMatchLimit(20);
-        setIsPremium(true);
-      } else {
-        setSubscribedMatchLimit(FREE_MATCH_LIMIT);
-        setIsPremium(false);
+      try {
+        if (session) {
+          // If authenticated, get subscription and matches viewed from API
+          const userResponse = await fetch("/api/users/profile");
+          if (userResponse.ok) {
+            const userData = await userResponse.json();
+
+            // Get subscription level
+            subscriptionLevel = userData.user?.subscriptionLevel || "free";
+
+            // Get matches viewed from database
+            matchesViewedCount = userData.user?.statistics?.matchesViewed || 0;
+
+            // Sync matchesViewed with localStorage if localStorage has more
+            const storedTotalMatches = localStorage.getItem(
+              "total_matches_viewed"
+            );
+            const localCount = storedTotalMatches
+              ? parseInt(storedTotalMatches, 10)
+              : 0;
+
+            // Use the higher count to ensure consistency
+            matchesViewedCount = Math.max(matchesViewedCount, localCount);
+
+            // Update localStorage with the current count
+            localStorage.setItem(
+              "total_matches_viewed",
+              matchesViewedCount.toString()
+            );
+          }
+        } else {
+          // If not authenticated, check localStorage
+          subscriptionLevel =
+            localStorage.getItem("subscription_level") || "free";
+
+          // Get matches viewed from localStorage
+          const storedTotalMatches = localStorage.getItem(
+            "total_matches_viewed"
+          );
+          matchesViewedCount = storedTotalMatches
+            ? parseInt(storedTotalMatches, 10)
+            : 0;
+        }
+      } catch (error) {
+        console.error("Error checking subscription:", error);
+
+        // Fallback to localStorage if API call fails
+        const storedTotalMatches = localStorage.getItem("total_matches_viewed");
+        matchesViewedCount = storedTotalMatches
+          ? parseInt(storedTotalMatches, 10)
+          : 0;
       }
 
-      // Calculate remaining matches
-      const totalViewed = storedTotalMatches
-        ? parseInt(storedTotalMatches, 10)
-        : 0;
-      const limit =
-        subscriptionLevel === "premium_basic"
-          ? 10
-          : subscriptionLevel === "premium_plus"
-          ? 20
-          : FREE_MATCH_LIMIT;
+      // Set total matches viewed state
+      setTotalMatchesViewed(matchesViewedCount);
+      totalMatches = matchesViewedCount;
 
-      setMatchesRemaining(Math.max(0, limit - totalViewed));
+      // Set the subscription limit based on the level
+      if (subscriptionLevel === "premium_plus") {
+        matchLimit = 999; // Unlimited (effectively)
+        isPremiumUser = true;
+      } else if (subscriptionLevel === "premium_basic") {
+        matchLimit = 10;
+        isPremiumUser = true;
+      } else {
+        matchLimit = FREE_MATCH_LIMIT;
+        isPremiumUser = false;
+      }
+
+      // Update state with subscription info
+      setSubscribedMatchLimit(matchLimit);
+      setIsPremium(isPremiumUser);
+
+      // Calculate matches remaining
+      setMatchesRemaining(Math.max(0, matchLimit - matchesViewedCount));
+
+      // Show paywall if matches viewed exceeds subscription limit
+      if (matchesViewedCount > matchLimit && !isPremiumUser) {
+        setShowPaywall(true);
+        return true; // Return true if we should show paywall
+      }
+
+      return false; // Continue with match fetch
     };
 
-    checkSubscriptionLevel();
+    // Function to fetch matches, only called if checkSubscriptionLevel returns false
+    const fetchMatches = async (shouldShowPaywall: boolean) => {
+      if (shouldShowPaywall) {
+        return; // Don't fetch matches if we're showing the paywall
+      }
 
-    const fetchMatches = async () => {
       try {
         setIsLoading(true);
         setError("");
 
-        // API call to get matches from database
-        const response = await fetch("/api/matches?list=true");
+        // Check if we have a lastViewedMatch stored
+        const lastViewedMatch = localStorage.getItem("last_viewed_match");
+
+        // Check if we're coming directly from the quiz
+        const fromQuiz = sessionStorage.getItem("from_quiz") === "true";
+
+        // If we have a lastViewedMatch and we're not coming from quiz, show that instead of fetching a new one
+        if (lastViewedMatch && !fromQuiz && !matchId) {
+          try {
+            const parsedMatch = JSON.parse(lastViewedMatch);
+            setMatches([parsedMatch]);
+            setIsLoading(false);
+            return;
+          } catch (e) {
+            console.error("Error parsing last viewed match:", e);
+            // Fall through to fetch a new match if parsing fails
+          }
+        }
+
+        // Build query param with already viewed matches
+        const viewedQueryParam =
+          viewedMatchesArray.length > 0
+            ? `&viewed=${encodeURIComponent(
+                JSON.stringify(viewedMatchesArray)
+              )}`
+            : "";
+
+        // Add fromQuiz parameter if coming from quiz
+        const fromQuizParam = fromQuiz ? "&fromQuiz=true" : "";
+
+        // API call to get matches from database, passing viewed matches to avoid duplicates
+        const response = await fetch(
+          `/api/matches?list=true${viewedQueryParam}${fromQuizParam}`
+        );
 
         if (!response.ok) {
           const errorData = await response.json();
@@ -167,47 +264,70 @@ export default function Matches() {
           return;
         }
 
-        // Set all matches
-        setMatches(data.matches);
+        // Filter out any matches that might already be in viewedMatches
+        const filteredMatches = data.matches.filter(
+          (match: Match) => !viewedMatchesArray.includes(match._id)
+        );
 
-        // If we have matches, set the current index to 0
-        setCurrentMatchIndex(0);
+        if (filteredMatches.length === 0) {
+          setNoMoreMatches(true);
+          setIsLoading(false);
+          return;
+        }
 
-        // Track that we've viewed a match
-        if (data.matches.length > 0) {
-          const currentMatch = data.matches[0];
-          // Add to viewed matches
-          if (!viewedMatches.includes(currentMatch._id)) {
-            const updatedViewedMatches = [...viewedMatches, currentMatch._id];
-            setViewedMatches(updatedViewedMatches);
+        // Sort by compatibility score
+        filteredMatches.sort(
+          (a: Match, b: Match) => b.compatibilityScore - a.compatibilityScore
+        );
+
+        // Get the top match
+        const topMatch = filteredMatches[0];
+
+        // Update the current match
+        setMatches([topMatch]);
+
+        // Save as last viewed match
+        localStorage.setItem("last_viewed_match", JSON.stringify(topMatch));
+
+        // Only count as viewed if coming from quiz or explicitly requesting a new match
+        if (fromQuiz) {
+          // Remove from_quiz flag to prevent double-counting on page refreshes
+          sessionStorage.removeItem("from_quiz");
+
+          // Check if we've already viewed this match
+          if (!viewedMatchesArray.includes(topMatch._id)) {
+            // Add to viewed matches list
+            viewedMatchesArray.push(topMatch._id);
             localStorage.setItem(
               "viewed_matches",
-              JSON.stringify(updatedViewedMatches)
+              JSON.stringify(viewedMatchesArray)
             );
+            setViewedMatches(viewedMatchesArray);
 
-            // Update total matches viewed
-            const newTotal = totalMatchesViewed + 1;
+            // Update total matches viewed count in state and localStorage
+            const newTotal = totalMatches + 1;
             setTotalMatchesViewed(newTotal);
             localStorage.setItem("total_matches_viewed", newTotal.toString());
 
-            // Update remaining matches
-            setMatchesRemaining(Math.max(0, subscribedMatchLimit - newTotal));
+            // Update matches remaining
+            setMatchesRemaining(Math.max(0, matchLimit - newTotal));
 
-            // Show paywall if free user and reached limit
-            if (!isPremium && newTotal >= FREE_MATCH_LIMIT) {
+            // Show paywall if reached limit
+            if (newTotal > matchLimit && !isPremiumUser) {
               setShowPaywall(true);
             }
           }
         }
+
+        setIsLoading(false);
       } catch (error) {
-        console.error("Failed to fetch matches:", error);
-        setError("Failed to load matches. Please try again later.");
-      } finally {
+        console.error("Error fetching matches:", error);
+        setError("Failed to fetch matches. Please try again.");
         setIsLoading(false);
       }
     };
 
-    // If specific match ID provided, load that match
+    // For specific match ID, load that match
     if (matchId) {
       const fetchSpecificMatch = async () => {
         try {
@@ -218,6 +338,23 @@ export default function Matches() {
           if (data.match) {
             setMatches([data.match]);
             setCurrentMatchIndex(0);
+
+            // Save as last viewed match
+            localStorage.setItem(
+              "last_viewed_match",
+              JSON.stringify(data.match)
+            );
+
+            // Don't count specific match views toward limit
+            // but do track it as viewed to avoid showing it again
+            if (!viewedMatchesArray.includes(data.match._id)) {
+              viewedMatchesArray.push(data.match._id);
+              localStorage.setItem(
+                "viewed_matches",
+                JSON.stringify(viewedMatchesArray)
+              );
+              setViewedMatches(viewedMatchesArray);
+            }
           } else {
             setError("Match not found");
           }
@@ -231,124 +368,125 @@ export default function Matches() {
 
       fetchSpecificMatch();
     } else {
-      fetchMatches();
+      // Check subscription first, then fetch matches if needed
+      checkSubscriptionLevel().then(fetchMatches);
     }
-  }, [
-    isPremium,
-    subscribedMatchLimit,
-    totalMatchesViewed,
-    viewedMatches,
-    matchId,
-  ]);
 
-  // Update functions to track match counting
-  useEffect(() => {
-    if (matches.length > 0 && !isLoading) {
-      const currentMatch = matches[currentMatchIndex];
-
-      // Update global match count if this is a new match view
-      if (!viewedMatches.includes(currentMatch._id)) {
-        const newTotalCount = totalMatchesViewed + 1;
-        setTotalMatchesViewed(newTotalCount);
-        localStorage.setItem("total_matches_viewed", newTotalCount.toString());
-
-        // Update remaining matches
-        setMatchesRemaining(Math.max(0, subscribedMatchLimit - newTotalCount));
-
-        // Add to viewed matches if not already present
-        const updatedViewedMatches = [...viewedMatches, currentMatch._id];
-        setViewedMatches(updatedViewedMatches);
-
-        // Store in localStorage for persistence and dashboard access
-        localStorage.setItem(
-          "viewed_matches",
-          JSON.stringify(updatedViewedMatches)
-        );
-
-        // Also store match details for display in dashboard
-        const matchHistory: {
-          id: string;
-          name: string;
-          age: number;
-          location: string;
-          profileImage: string;
-          compatibilityScore: number;
-          viewedAt: string;
-        }[] = JSON.parse(localStorage.getItem("match_history") || "[]");
-        const matchDetails = {
-          id: currentMatch._id,
-          name: currentMatch.name,
-          age: currentMatch.age,
-          location: `${currentMatch.location.city}, ${currentMatch.location.country}`,
-          profileImage: currentMatch.profileImage,
-          compatibilityScore: currentMatch.compatibilityScore,
-          viewedAt: new Date().toISOString(),
-        };
-
-        // Avoid duplicates in match history
-        if (!matchHistory.some((match) => match.id === currentMatch._id)) {
-          matchHistory.push(matchDetails);
-          localStorage.setItem("match_history", JSON.stringify(matchHistory));
-        }
-      }
-    }
-  }, [
-    currentMatchIndex,
-    matches,
-    isLoading,
-    viewedMatches,
-    totalMatchesViewed,
-    subscribedMatchLimit,
-  ]);
+    // Only include router and matchId in dependencies as they're external
+  }, [router, matchId]);
 
   const nextMatch = async () => {
-    // If we already have matches loaded, just move to the next one
-    if (matches.length > currentMatchIndex + 1) {
-      setCurrentMatchIndex(currentMatchIndex + 1);
-
-      // Track that we've viewed this match
-      const nextMatchId = matches[currentMatchIndex + 1]._id;
-      if (!viewedMatches.includes(nextMatchId)) {
-        const updatedViewedMatches = [...viewedMatches, nextMatchId];
-        setViewedMatches(updatedViewedMatches);
-        localStorage.setItem(
-          "viewed_matches",
-          JSON.stringify(updatedViewedMatches)
-        );
-
-        // Update total matches viewed
-        const newTotal = totalMatchesViewed + 1;
-        setTotalMatchesViewed(newTotal);
-        localStorage.setItem("total_matches_viewed", newTotal.toString());
-
-        // Update remaining matches
-        setMatchesRemaining(Math.max(0, subscribedMatchLimit - newTotal));
-
-        // Show paywall if free user and reached limit
-        if (!isPremium && newTotal >= FREE_MATCH_LIMIT) {
-          setShowPaywall(true);
-        }
-      }
-      return;
-    }
-
-    // If no more matches in our current array, try to fetch new ones
     try {
-      setIsNextMatchLoading(true);
+      setIsLoading(true);
       setError("");
 
-      // Exclude current match when fetching next
-      const currentMatchId = matches[currentMatchIndex]?._id;
-      const url = currentMatchId ? `/api/matches?refresh=true` : "/api/matches";
+      // For authenticated users, refresh subscription and match count from server
+      let matchLimit = subscribedMatchLimit;
+      let isPremiumUser = isPremium;
+      let currentTotalViewed = totalMatchesViewed;
 
-      const response = await fetch(url);
+      if (session) {
+        try {
+          const userResponse = await fetch("/api/users/profile");
+          if (userResponse.ok) {
+            const userData = await userResponse.json();
 
+            // Update matches viewed count from server
+            const serverMatchCount =
+              userData.user?.statistics?.matchesViewed || 0;
+            const storedTotalMatches = localStorage.getItem(
+              "total_matches_viewed"
+            );
+            const localCount = storedTotalMatches
+              ? parseInt(storedTotalMatches, 10)
+              : 0;
+
+            // Use the higher count for consistency
+            currentTotalViewed = Math.max(serverMatchCount, localCount);
+            setTotalMatchesViewed(currentTotalViewed);
+            localStorage.setItem(
+              "total_matches_viewed",
+              currentTotalViewed.toString()
+            );
+
+            // Get updated subscription status
+            const serverSubscription =
+              userData.user?.subscriptionLevel || "free";
+            if (serverSubscription === "premium_plus") {
+              matchLimit = 999;
+              isPremiumUser = true;
+              setSubscribedMatchLimit(matchLimit);
+              setIsPremium(true);
+            } else if (serverSubscription === "premium_basic") {
+              matchLimit = 10;
+              isPremiumUser = true;
+              setSubscribedMatchLimit(matchLimit);
+              setIsPremium(true);
+            } else {
+              matchLimit = FREE_MATCH_LIMIT;
+              isPremiumUser = false;
+              setSubscribedMatchLimit(matchLimit);
+              setIsPremium(false);
+            }
+
+            // Recalculate matches remaining
+            setMatchesRemaining(Math.max(0, matchLimit - currentTotalViewed));
+          }
+        } catch (error) {
+          console.error("Error refreshing user data:", error);
+          // Continue with stored values if refresh fails
+        }
+      }
+
+      // Get viewed matches from localStorage
+      let storedViewedMatches = localStorage.getItem("viewed_matches");
+      let viewedMatchesArray = storedViewedMatches
+        ? JSON.parse(storedViewedMatches)
+        : [];
+
+      // Add current match to viewed if it exists and isn't already there
+      if (
+        matches &&
+        matches.length > 0 &&
+        !viewedMatchesArray.includes(matches[0]._id)
+      ) {
+        viewedMatchesArray.push(matches[0]._id);
+        localStorage.setItem(
+          "viewed_matches",
+          JSON.stringify(viewedMatchesArray)
+        );
+        setViewedMatches(viewedMatchesArray);
+      }
+
+      // Check if we've reached match limit for free users
+      // Only show paywall after user has viewed all allowed matches and tries to see more
+      if (currentTotalViewed >= matchLimit && !isPremiumUser) {
+        setShowPaywall(true);
+        setIsLoading(false);
+        return;
+      }
+
+      // Build query string with viewed matches
+      const viewedQueryParam =
+        viewedMatchesArray.length > 0
+          ? `&viewed=${encodeURIComponent(JSON.stringify(viewedMatchesArray))}`
+          : "";
+
+      // API call to fetch next match with refresh=true to ensure it's counted in the database
+      const response = await fetch(
+        `/api/matches?refresh=true${viewedQueryParam}`
+      );
+
+      // Handle 404 (no more matches)
+      if (response.status === 404) {
+        setNoMoreMatches(true);
+        setIsLoading(false);
+        return;
+      }
+
+      // Handle other errors
       if (!response.ok) {
         const errorData = await response.json();
-        if (response.status === 404) {
-          setNoMoreMatches(true);
-          return;
-        }
         throw new Error(errorData.error || "Failed to fetch next match");
       }
 
@@ -356,43 +494,46 @@ export default function Matches() {
 
       if (!data.match) {
         setNoMoreMatches(true);
+        setIsLoading(false);
         return;
       }
 
-      // Add this match to our existing matches
-      const newMatch = data.match;
-      setMatches([...matches, newMatch]);
+      // Store the new match
+      setMatches([data.match]);
+      setShowDetailedProfile(false);
 
-      // Move to the next match
-      setCurrentMatchIndex(currentMatchIndex + 1);
+      // Save as last viewed match
+      localStorage.setItem("last_viewed_match", JSON.stringify(data.match));
 
-      // Track that we've viewed this match
-      if (!viewedMatches.includes(newMatch._id)) {
-        const updatedViewedMatches = [...viewedMatches, newMatch._id];
-        setViewedMatches(updatedViewedMatches);
+      // Track as viewed in localStorage if not already
+      if (!viewedMatchesArray.includes(data.match._id)) {
+        viewedMatchesArray.push(data.match._id);
         localStorage.setItem(
           "viewed_matches",
-          JSON.stringify(updatedViewedMatches)
+          JSON.stringify(viewedMatchesArray)
         );
+        setViewedMatches(viewedMatchesArray);
 
-        // Update total matches viewed
-        const newTotal = totalMatchesViewed + 1;
+        // Update total matches viewed count
+        const newTotal = currentTotalViewed + 1;
         setTotalMatchesViewed(newTotal);
         localStorage.setItem("total_matches_viewed", newTotal.toString());
 
-        // Update remaining matches
-        setMatchesRemaining(Math.max(0, subscribedMatchLimit - newTotal));
+        // Update matches remaining
+        setMatchesRemaining(Math.max(0, matchLimit - newTotal));
 
-        // Show paywall if free user and reached limit
-        if (!isPremium && newTotal >= FREE_MATCH_LIMIT) {
+        // Show paywall if new count exceeds limit (will affect next click)
+        // We've just shown the last match, so don't show paywall yet
+        if (newTotal > matchLimit && !isPremiumUser) {
           setShowPaywall(true);
         }
       }
+
+      setIsLoading(false);
     } catch (error) {
-      console.error("Failed to fetch next match:", error);
-      setError("Failed to load next match. Please try again later.");
-    } finally {
-      setIsNextMatchLoading(false);
+      console.error("Error fetching next match:", error);
+      setError("Failed to fetch next match. Please try again.");
+      setIsLoading(false);
     }
   };
 
