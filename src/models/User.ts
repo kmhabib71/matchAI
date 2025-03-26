@@ -107,6 +107,7 @@ export interface IUser extends Document {
   verificationScore?: number;
   personalityQuiz?: IPersonalityQuiz;
   roles: UserRole[];
+  oauthProvider?: string;
   comparePassword(candidatePassword: string): Promise<boolean>;
 }
 
@@ -114,7 +115,13 @@ const UserSchema: Schema = new Schema(
   {
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
+    password: {
+      type: String,
+      required: function () {
+        // Password is not required if user signed up with OAuth
+        return !this.oauthProvider;
+      },
+    },
     age: { type: Number, required: true },
     gender: { type: String, required: true },
     orientation: { type: String, required: true },
@@ -205,6 +212,7 @@ const UserSchema: Schema = new Schema(
       enum: Object.values(UserRole),
       default: [UserRole.USER],
     },
+    oauthProvider: { type: String },
   },
   { timestamps: true }
 );
@@ -213,9 +221,6 @@ const UserSchema: Schema = new Schema(
 if (typeof window === "undefined") {
   // Create index for location-based queries
   UserSchema.index({ location: "2dsphere" });
-
-  // Create index for email for faster lookups
-  UserSchema.index({ email: 1 });
 }
 
 // Hash password before saving

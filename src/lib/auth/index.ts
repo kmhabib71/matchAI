@@ -1,3 +1,6 @@
+// src/app/api/auth/[...nextauth]/route.ts
+export const runtime = "nodejs";
+
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
@@ -21,9 +24,25 @@ interface CustomUser {
 interface CustomSession {
   user: CustomUser & DefaultSession["user"];
 }
-
+console.log("GOOGLE_CLIENT_ID", process.env.GOOGLE_CLIENT_ID);
+console.log("GOOGLE_CLIENT_SECRET", process.env.GOOGLE_CLIENT_SECRET);
 export const authOptions: NextAuthOptions = {
   providers: [
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID || "",
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+      authorization: {
+        params: {
+          prompt: "consent",
+          access_type: "offline",
+          response_type: "code",
+        },
+      },
+    }),
+    FacebookProvider({
+      clientId: process.env.FACEBOOK_CLIENT_ID || "",
+      clientSecret: process.env.FACEBOOK_CLIENT_SECRET || "",
+    }),
     CredentialsProvider({
       name: "Credentials",
       credentials: {
@@ -70,21 +89,6 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
       },
-    }),
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID || "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
-      authorization: {
-        params: {
-          prompt: "consent",
-          access_type: "offline",
-          response_type: "code",
-        },
-      },
-    }),
-    FacebookProvider({
-      clientId: process.env.FACEBOOK_CLIENT_ID || "",
-      clientSecret: process.env.FACEBOOK_CLIENT_SECRET || "",
     }),
   ],
   session: {
@@ -139,12 +143,23 @@ export const authOptions: NextAuthOptions = {
             age: 18,
             gender: "Not specified",
             orientation: "Not specified",
-            location: "Not specified",
-            relationshipGoals: "Casual",
+            location: {
+              type: "Point",
+              coordinates: [0, 0], // Default coordinates
+              city: "Not specified",
+              country: "Not specified",
+            },
+            relationshipGoals: ["Casual"],
             profileCompleted: false,
           });
 
           await newUser.save();
+
+          // Set redirect flag for new users from Google
+          if (account.provider === "google") {
+            // The user will be redirected to complete their profile
+            return "/profile";
+          }
         }
       }
 

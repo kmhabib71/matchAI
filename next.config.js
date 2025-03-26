@@ -1,6 +1,5 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   /* config options here */
   images: {
     domains: [
@@ -10,8 +9,9 @@ const nextConfig: NextConfig = {
       "picsum.photos",
       "via.placeholder.com",
       "placehold.co",
+      "lh3.googleusercontent.com",
     ],
   },
 };
 
-export default nextConfig;
+module.exports = nextConfig;

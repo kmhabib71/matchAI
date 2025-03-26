@@ -1,5 +1,5 @@
 "use client";
-
+import { getSession } from "next-auth/react";
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -124,13 +124,71 @@ export default function Login() {
       setIsLoading(false);
     }
   };
-
   const handleSocialLogin = async (provider: string) => {
     setIsLoading(true);
+    setError("");
+
     try {
-      await signIn(provider, { callbackUrl: "/dashboard" });
+      console.log(`Attempting ${provider} sign in/sign up`);
+
+      const result = await signIn(provider, {
+        redirect: true,
+        callbackUrl: "/auth/social-sync",
+      });
+
+      if (result?.error) {
+        console.error(`${provider} sign in error:`, result.error);
+        setError(result.error);
+        return;
+      }
+
+      // ✅ Retry logic to wait until session is populated
+      let session = null;
+      let retries = 5;
+      while (!session && retries > 0) {
+        session = await getSession();
+        if (!session) {
+          await new Promise((res) => setTimeout(res, 300));
+          retries--;
+        }
+      }
+
+      const email = session?.user?.email;
+      if (!email) {
+        throw new Error("Could not retrieve user email from session");
+      }
+
+      // 🔁 Call your social-token API to generate custom JWT
+
+      const tokenRes = await fetch("/api/auth/social-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+
+      const tokenData = await tokenRes.json();
+
+      if (!tokenRes.ok || !tokenData.token) {
+        console.error("Failed to get auth token from server:", tokenData);
+        setError(tokenData.error || "Authentication token error");
+        return;
+      }
+
+      // 💾 Store token and user in localStorage
+      localStorage.setItem("authToken", tokenData.token);
+      localStorage.setItem("user", JSON.stringify(tokenData.user));
+
+      console.log("Social login complete, token stored.");
+
+      setTimeout(() => {
+        window.location.href = "/dashboard";
+      }, 500);
     } catch (err: any) {
-      setError(err.message || `An error occurred during ${provider} login`);
+      console.error(`${provider} sign in/up error:`, err);
+      setError(
+        err.message || `An error occurred during ${provider} authentication`
+      );
+    } finally {
       setIsLoading(false);
     }
   };
@@ -168,7 +226,57 @@ export default function Login() {
           </div>
         )}
 
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit(onSubmit)}>
+        {/* Google Sign In Button (Now as the first option) */}
+        <div className="mt-8">
+          <button
+            onClick={() => handleSocialLogin("google")}
+            disabled={isLoading}
+            className="w-full flex justify-center items-center py-3 px-4 rounded-md shadow-sm text-sm font-medium transition-colors bg-blue-500 text-white hover:bg-blue-600 cursor-pointer"
+          >
+            <svg
+              className="mr-2"
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="24"
+              viewBox="0 0 40 48"
+              aria-hidden="true"
+            >
+              <path
+                fill="#ffffff"
+                d="M39.2 24.45c0-1.55-.16-3.04-.43-4.45H20v8h10.73c-.45 2.53-1.86 4.68-4 6.11v5.05h6.5c3.78-3.48 5.97-8.62 5.97-14.71z"
+              ></path>
+              <path
+                fill="#ffffff"
+                d="M20 44c5.4 0 9.92-1.79 13.24-4.84l-6.5-5.05C24.95 35.3 22.67 36 20 36c-5.19 0-9.59-3.51-11.15-8.23h-6.7v5.2C5.43 39.51 12.18 44 20 44z"
+              ></path>
+              <path
+                fill="#ffffff"
+                d="M8.85 27.77c-.4-1.19-.62-2.46-.62-3.77s.22-2.58.62-3.77v-5.2h-6.7C.78 17.73 0 20.77 0 24s.78 6.27 2.14 8.97l6.71-5.2z"
+              ></path>
+              <path
+                fill="#ffffff"
+                d="M20 12c2.93 0 5.55 1.01 7.62 2.98l5.76-5.76C29.92 5.98 25.39 4 20 4 12.18 4 5.43 8.49 2.14 15.03l6.7 5.2C10.41 15.51 14.81 12 20 12z"
+              ></path>
+            </svg>
+            <span>{isLoading ? "Signing in..." : "Sign in with Google"}</span>
+          </button>
+          <p className="mt-2 text-center text-xs text-gray-500">
+            New users will be prompted to complete their profile
+          </p>
+        </div>
+
+        <div className="mt-6 relative">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-300"></div>
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="px-2 bg-white text-gray-500">
+              Or sign in with email
+            </span>
+          </div>
+        </div>
+
+        <form className="mt-6 space-y-6" onSubmit={handleSubmit(onSubmit)}>
           <div className="rounded-md shadow-sm -space-y-px">
             <div>
               <label htmlFor="email" className="sr-only">
@@ -290,39 +398,6 @@ export default function Login() {
             </button>
           </div>
         </form>
-
-        <div className="mt-6">
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-gray-500">
-                Or continue with
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-6 grid grid-cols-1 gap-3">
-            <button
-              onClick={() => handleSocialLogin("google")}
-              disabled={isLoading}
-              className="w-full inline-flex justify-center items-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <svg
-                className="w-5 h-5 mr-2"
-                viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"
-                  fill="#4285F4"
-                />
-              </svg>
-              Sign in with Google
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );

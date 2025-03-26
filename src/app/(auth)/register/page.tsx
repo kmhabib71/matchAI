@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useForm, SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { signIn } from "next-auth/react";
+import { getSession, signIn } from "next-auth/react";
 
 // Define validation schema for registration
 const registerSchema = z.object({
@@ -79,10 +79,69 @@ export default function Register() {
 
   const handleSocialSignup = async (provider: string) => {
     setIsLoading(true);
+    setError("");
+
     try {
-      await signIn(provider, { callbackUrl: "/dashboard" });
+      console.log(`Attempting ${provider} sign in/sign up`);
+
+      const result = await signIn(provider, {
+        redirect: true,
+        callbackUrl: "/auth/social-sync",
+      });
+
+      if (result?.error) {
+        console.error(`${provider} sign in error:`, result.error);
+        setError(result.error);
+        return;
+      }
+
+      // ✅ Retry logic to wait until session is populated
+      let session = null;
+      let retries = 5;
+      while (!session && retries > 0) {
+        session = await getSession();
+        if (!session) {
+          await new Promise((res) => setTimeout(res, 300));
+          retries--;
+        }
+      }
+
+      const email = session?.user?.email;
+      if (!email) {
+        throw new Error("Could not retrieve user email from session");
+      }
+
+      // 🔁 Call your social-token API to generate custom JWT
+
+      const tokenRes = await fetch("/api/auth/social-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+
+      const tokenData = await tokenRes.json();
+
+      if (!tokenRes.ok || !tokenData.token) {
+        console.error("Failed to get auth token from server:", tokenData);
+        setError(tokenData.error || "Authentication token error");
+        return;
+      }
+
+      // 💾 Store token and user in localStorage
+      localStorage.setItem("authToken", tokenData.token);
+      localStorage.setItem("user", JSON.stringify(tokenData.user));
+
+      console.log("Social login complete, token stored.");
+
+      setTimeout(() => {
+        window.location.href = "/dashboard";
+      }, 500);
     } catch (err: any) {
-      setError(err.message || `An error occurred during ${provider} signup`);
+      console.error(`${provider} sign in/up error:`, err);
+      setError(
+        err.message || `An error occurred during ${provider} authentication`
+      );
+    } finally {
       setIsLoading(false);
     }
   };
@@ -100,8 +159,17 @@ export default function Register() {
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-lg shadow-md">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Create your account
+            Create a new account
           </h2>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            Or{" "}
+            <Link
+              href="/login"
+              className="font-medium text-purple-600 hover:text-purple-500"
+            >
+              sign in to your account
+            </Link>
+          </p>
           <p className="mt-2 text-center text-sm text-gray-600">
             Step {step} of 3
           </p>
@@ -120,7 +188,40 @@ export default function Register() {
           </div>
         )}
 
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit(onSubmit)}>
+        {/* Google Sign Up Button (Now as the first option) */}
+        <div className="mt-8">
+          <button
+            type="button"
+            onClick={() => handleSocialSignup("google")}
+            disabled={isLoading}
+            className="w-full flex justify-center items-center py-3 px-4 rounded-md shadow-sm text-sm font-medium transition-colors bg-blue-500 hover:bg-blue-600 text-white"
+          >
+            <svg
+              className="w-5 h-5 mr-2"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"
+                fill="#ffffff"
+              />
+            </svg>
+            <span>Sign up with Google</span>
+          </button>
+        </div>
+
+        <div className="mt-6 relative">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-300"></div>
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="px-2 bg-white text-gray-500">
+              Or sign up with email
+            </span>
+          </div>
+        </div>
+
+        <form className="mt-6 space-y-6" onSubmit={handleSubmit(onSubmit)}>
           {/* Step 1: Basic Information */}
           {step === 1 && (
             <div className="space-y-4">
@@ -404,52 +505,6 @@ export default function Register() {
               </div>
             </div>
           )}
-
-          <div className="text-center mt-4">
-            <p className="text-sm text-gray-600">
-              Already have an account?{" "}
-              <Link
-                href="/login"
-                className="font-medium text-purple-600 hover:text-purple-500"
-              >
-                Sign in
-              </Link>
-            </p>
-          </div>
-
-          <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">
-                  Or sign up with
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-6">
-              <button
-                type="button"
-                onClick={() => handleSocialSignup("google")}
-                disabled={isLoading}
-                className="w-full inline-flex justify-center items-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                <svg
-                  className="w-5 h-5 mr-2"
-                  viewBox="0 0 24 24"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"
-                    fill="#4285F4"
-                  />
-                </svg>
-                Sign up with Google
-              </button>
-            </div>
-          </div>
         </form>
       </div>
     </div>
