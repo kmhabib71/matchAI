@@ -131,35 +131,41 @@ export const authOptions: NextAuthOptions = {
           return false;
         }
 
-        // Check if user exists
-        const existingUser = await User.findOne({ email });
+        try {
+          // Check if user exists
+          const existingUser = await User.findOne({ email });
 
-        if (!existingUser) {
-          // Create a new user with social login
-          const newUser = new User({
-            name: user.name || profile?.name || "User",
-            email,
-            // Set default values for required fields
-            age: 18,
-            gender: "Not specified",
-            orientation: "Not specified",
-            location: {
-              type: "Point",
-              coordinates: [0, 0], // Default coordinates
-              city: "Not specified",
-              country: "Not specified",
-            },
-            relationshipGoals: ["Casual"],
-            profileCompleted: false,
-          });
+          if (!existingUser) {
+            // Extract profile data safely
+            const profileData = profile as Record<string, any>;
 
-          await newUser.save();
+            // Create a new user with social login
+            const newUser = new User({
+              name: user.name || profileData?.name || "User",
+              email,
+              profileImage: user.image || profileData?.picture,
+              // Set default values for required fields
+              age: 18, // Default age
+              gender: "Not specified", // Default gender - user will set this in profile
+              orientation: "Not specified",
+              location: {
+                type: "Point",
+                coordinates: [0, 0], // Default coordinates
+                city: "Not specified",
+                country: "Not specified",
+              },
+              relationshipGoals: ["Casual"],
+              profileCompleted: false,
+            });
 
-          // Set redirect flag for new users from Google
-          if (account.provider === "google") {
-            // The user will be redirected to complete their profile
-            return "/profile";
+            await newUser.save();
           }
+
+          // Always return true to allow the sign-in
+          return true;
+        } catch (error) {
+          console.error("Error in signIn callback:", error);
+          return false; // Deny sign-in if there's an error
         }
       }
 

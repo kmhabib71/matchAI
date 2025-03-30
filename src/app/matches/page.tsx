@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import PersonalityQuiz from "@/components/PersonalityQuiz";
 interface Match {
   _id: string;
   userId: string;
@@ -50,7 +51,9 @@ export default function Matches() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const matchId = searchParams.get("id");
+  // Main match display scenarios:
+  // 1. After quiz completion: User completes quiz and is shown a match based on their answers
+  // 2. Next Match button: User clicks to see another match suggestion
   const [matches, setMatches] = useState<Match[]>([]);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -60,28 +63,18 @@ export default function Matches() {
   const [noMoreMatches, setNoMoreMatches] = useState(false);
   const [isPremium, setIsPremium] = useState(false); // Track premium status
   const [showPaywall, setShowPaywall] = useState(false); // Show paywall when free limit reached
-
-  // New state variables for profile details viewing
+  const [hasPreviousMatches, setHasPreviousMatches] = useState(false); // Track if user has previous matches
+  const [showQuiz, setShowQuiz] = useState(false); // Control PersonalityQuiz visibility
   const [showDetailedProfile, setShowDetailedProfile] = useState(false);
   const [showContactModal, setShowContactModal] = useState(false);
   const [contactType, setContactType] = useState<
     "phone" | "email" | "address" | "social"
   >("phone");
-  useEffect(() => {
-    if (status === "loading") return;
 
-    if (status === "unauthenticated") {
-      router.push("/login");
-      return;
-    }
-  }, [status, router]);
-  // Add state for viewed match history
-  const [viewedMatches, setViewedMatches] = useState<string[]>([]);
-
-  // Add global match count tracking
+  // No need for viewedMatches state anymore, as it's tracked in the database
   const [totalMatchesViewed, setTotalMatchesViewed] = useState(0);
   const [subscribedMatchLimit, setSubscribedMatchLimit] = useState(3);
-  const [matchesRemaining, setMatchesRemaining] = useState(3);
+  const [matchesRemaining, setMatchesRemaining] = useState(0);
 
   // Add state for proposal functionality
   const [showProposalModal, setShowProposalModal] = useState(false);
@@ -92,163 +85,251 @@ export default function Matches() {
 
   const FREE_MATCH_LIMIT = 3; // Free users can see 3 matches
 
+  // Updated to use database information instead of localStorage
   useEffect(() => {
-    // Initialize viewed matches tracking from localStorage
-    let storedViewedMatches = localStorage.getItem("viewed_matches");
-    let viewedMatchesArray = storedViewedMatches
-      ? JSON.parse(storedViewedMatches)
-      : [];
-    setViewedMatches(viewedMatchesArray);
-
-    // Check for personality quiz data
-    const personalityData = localStorage.getItem("personality_answers");
-    if (!personalityData) {
-      // If no quiz data found, redirect to home page to complete quiz
-      router.push("/");
+    if (status === "loading") return;
+    console.log("data is: ", session);
+    if (status === "unauthenticated") {
+      router.push("/login");
       return;
-    } else {
-      setHasPersonalityData(true);
     }
 
-    // Initialize variables we'll use in the function
-    let matchLimit = FREE_MATCH_LIMIT;
-    let isPremiumUser = false;
-    let totalMatches = 0;
-
-    // Check subscription level and set appropriate limits
-    const checkSubscriptionLevel = async () => {
-      // Get subscription level from API or localStorage
-      let subscriptionLevel = "free";
-      let matchesViewedCount = 0;
-
-      try {
-        if (session) {
-          // If authenticated, get subscription and matches viewed from API
+    // Direct user profile check to get previousMatches
+    const fetchUserProfile = async () => {
+      if (session) {
+        try {
+          setIsLoading(true);
           const userResponse = await fetch("/api/users/profile");
           if (userResponse.ok) {
             const userData = await userResponse.json();
+            console.log("userData is: ", userData);
+            // Check if user has previous matches in their profile
+            if (
+              userData.user?.previousMatches &&
+              userData.user.previousMatches.length > 0
+            ) {
+              console.log(
+                "User has previous matches in profile:",
+                userData.user.previousMatches
+              );
+              setHasPreviousMatches(true);
 
-            // Get subscription level
-            subscriptionLevel = userData.user?.subscriptionLevel || "free";
+              // Set correct matches remaining based on previous matches count
+              const previousMatchesCount = userData.user.previousMatches.length;
 
-            // Get matches viewed from database
-            matchesViewedCount = userData.user?.statistics?.matchesViewed || 0;
+              // Use database count directly instead of localStorage
+              setTotalMatchesViewed(previousMatchesCount);
 
-            // Sync matchesViewed with localStorage if localStorage has more
-            const storedTotalMatches = localStorage.getItem(
-              "total_matches_viewed"
-            );
-            const localCount = storedTotalMatches
-              ? parseInt(storedTotalMatches, 10)
-              : 0;
+              // For free users, calculate remaining matches consistently
+              const remaining = Math.max(
+                0,
+                FREE_MATCH_LIMIT - previousMatchesCount
+              );
+              setMatchesRemaining(remaining);
+              console.log(
+                "Setting matches remaining to:",
+                remaining,
+                "from previous matches count:",
+                previousMatchesCount
+              );
 
-            // Use the higher count to ensure consistency
-            matchesViewedCount = Math.max(matchesViewedCount, localCount);
+              // Get the most recent previous match
+              const mostRecentMatch =
+                userData.user.previousMatches[
+                  userData.user.previousMatches.length - 1
+                ];
+              console.log("Most recent match from profile:", mostRecentMatch);
 
-            // Update localStorage with the current count
-            localStorage.setItem(
-              "total_matches_viewed",
-              matchesViewedCount.toString()
-            );
+              if (mostRecentMatch && mostRecentMatch.userId) {
+                // Handle various formats of MongoDB ObjectId that might come from the database
+                let userId;
+                if (typeof mostRecentMatch.userId === "object") {
+                  // Handle MongoDB ObjectId stored as { $oid: "..." }
+                  if (mostRecentMatch.userId.$oid) {
+                    userId = mostRecentMatch.userId.$oid;
+                  }
+                  // Handle MongoDB ObjectId reference stored as { _id: "..." }
+                  else if (mostRecentMatch.userId._id) {
+                    userId =
+                      typeof mostRecentMatch.userId._id === "object" &&
+                      mostRecentMatch.userId._id.$oid
+                        ? mostRecentMatch.userId._id.$oid
+                        : mostRecentMatch.userId._id.toString();
+                  }
+                  // Handle other object formats
+                  else {
+                    userId = mostRecentMatch.userId.toString();
+                  }
+                } else {
+                  // Direct string ID
+                  userId = mostRecentMatch.userId;
+                }
+
+                console.log("Type of userId:", typeof userId);
+                console.log("Extracted User ID:", userId);
+
+                // Fetch the full match details with exact userId from previousMatches
+                const requestUrl = `/api/matches?userId=${userId}`;
+                console.log("Request URL:", requestUrl);
+
+                // Make sure to use the exact userId from the previousMatches array
+                const matchResponse = await fetch(requestUrl);
+
+                if (matchResponse.ok) {
+                  const matchData = await matchResponse.json();
+                  console.log("Match data response:", matchData);
+
+                  if (matchData.match) {
+                    // We have a match, set it
+                    console.log(
+                      "Setting match from profile previousMatches:",
+                      matchData.match
+                    );
+
+                    setMatches([matchData.match]);
+                    setIsLoading(false);
+                    return true; // Successfully fetched match
+                  }
+                } else {
+                  console.error(
+                    "Failed to fetch match details:",
+                    await matchResponse.text()
+                  );
+                }
+              }
+            } else {
+              console.log("User has no previous matches in profile");
+              setHasPreviousMatches(false);
+
+              // If no previous matches, user has their full match allotment
+              setMatchesRemaining(FREE_MATCH_LIMIT);
+              console.log(
+                "Setting matches remaining to:",
+                FREE_MATCH_LIMIT,
+                "for new user"
+              );
+            }
           }
-        } else {
-          // If not authenticated, check localStorage
-          subscriptionLevel =
-            localStorage.getItem("subscription_level") || "free";
-
-          // Get matches viewed from localStorage
-          const storedTotalMatches = localStorage.getItem(
-            "total_matches_viewed"
-          );
-          matchesViewedCount = storedTotalMatches
-            ? parseInt(storedTotalMatches, 10)
-            : 0;
+        } catch (error) {
+          console.error("Error fetching user profile:", error);
         }
-      } catch (error) {
-        console.error("Error checking subscription:", error);
-
-        // Fallback to localStorage if API call fails
-        const storedTotalMatches = localStorage.getItem("total_matches_viewed");
-        matchesViewedCount = storedTotalMatches
-          ? parseInt(storedTotalMatches, 10)
-          : 0;
       }
-
-      // Set total matches viewed state
-      setTotalMatchesViewed(matchesViewedCount);
-      totalMatches = matchesViewedCount;
-
-      // Set the subscription limit based on the level
-      if (subscriptionLevel === "premium_plus") {
-        matchLimit = 999; // Unlimited (effectively)
-        isPremiumUser = true;
-      } else if (subscriptionLevel === "premium_basic") {
-        matchLimit = 10;
-        isPremiumUser = true;
-      } else {
-        matchLimit = FREE_MATCH_LIMIT;
-        isPremiumUser = false;
-      }
-
-      // Update state with subscription info
-      setSubscribedMatchLimit(matchLimit);
-      setIsPremium(isPremiumUser);
-
-      // Calculate matches remaining
-      setMatchesRemaining(Math.max(0, matchLimit - matchesViewedCount));
-
-      // Show paywall if matches viewed exceeds subscription limit
-      if (matchesViewedCount > matchLimit && !isPremiumUser) {
-        setShowPaywall(true);
-        return true; // Return true if we should show paywall
-      }
-
-      return false; // Continue with match fetch
+      return false; // Failed to fetch match or no matches found
     };
 
-    // Function to fetch matches, only called if checkSubscriptionLevel returns false
-    const fetchMatches = async (shouldShowPaywall: boolean) => {
-      if (shouldShowPaywall) {
-        return; // Don't fetch matches if we're showing the paywall
+    const initializeMatches = async () => {
+      // Check for personality quiz data
+      const personalityData = localStorage.getItem("personality_answers");
+      if (!personalityData) {
+        // If no quiz data found, show the quiz on matches page instead of redirecting
+        setHasPersonalityData(false);
+        setShowQuiz(true);
+        setIsLoading(false); // Stop loading state to show quiz
+        return;
+      } else {
+        setHasPersonalityData(true);
       }
 
-      try {
-        setIsLoading(true);
-        setError("");
+      // First try to fetch the user profile directly to check for previous matches
+      const hasUserProfileMatch = await fetchUserProfile();
 
-        // Check if we have a lastViewedMatch stored
-        const lastViewedMatch = localStorage.getItem("last_viewed_match");
+      // For quiz-directed matches, we should always process new matches
+      // even if we already have previous matches
+      const fromQuiz = sessionStorage.getItem("from_quiz") === "true";
+      if (hasUserProfileMatch && !fromQuiz) {
+        // Only skip match loading if we have previous matches AND we're not coming from quiz
+        return;
+      }
 
-        // Check if we're coming directly from the quiz
-        const fromQuiz = sessionStorage.getItem("from_quiz") === "true";
+      // Initialize variables we'll use in the function
+      let matchLimit = FREE_MATCH_LIMIT;
+      let isPremiumUser = false;
+      let totalMatches = 0;
 
-        // If we have a lastViewedMatch and we're not coming from quiz, show that instead of fetching a new one
-        if (lastViewedMatch && !fromQuiz && !matchId) {
-          try {
-            const parsedMatch = JSON.parse(lastViewedMatch);
-            setMatches([parsedMatch]);
-            setIsLoading(false);
-            return;
-          } catch (e) {
-            console.error("Error parsing last viewed match:", e);
-            // Fall through to fetch a new match if parsing fails
+      // Check subscription level and set appropriate limits
+      const checkSubscription = async () => {
+        // Get subscription level from API
+        let subscriptionLevel = "free";
+        let matchesViewedCount = 0;
+        let previousMatchesCount = 0;
+
+        try {
+          if (session) {
+            // If authenticated, get subscription and matches viewed from API
+            const userResponse = await fetch("/api/users/profile");
+            if (userResponse.ok) {
+              const userData = await userResponse.json();
+
+              // Get previous matches count for accurate calculation
+              previousMatchesCount =
+                userData.user?.previousMatches?.length || 0;
+
+              // Get subscription level
+              subscriptionLevel = userData.user?.subscriptionLevel || "free";
+
+              // Use database count directly
+              matchesViewedCount = previousMatchesCount;
+            }
+          } else {
+            // If not authenticated, default to free tier
+            subscriptionLevel = "free";
+            matchesViewedCount = 0;
           }
+        } catch (error) {
+          console.error("Error checking subscription:", error);
+          // Default to free tier if API call fails
+          matchesViewedCount = 0;
         }
 
-        // Build query param with already viewed matches
-        const viewedQueryParam =
-          viewedMatchesArray.length > 0
-            ? `&viewed=${encodeURIComponent(
-                JSON.stringify(viewedMatchesArray)
-              )}`
-            : "";
+        // Set total matches viewed state based on previous matches count
+        setTotalMatchesViewed(matchesViewedCount);
+        totalMatches = matchesViewedCount;
 
-        // Add fromQuiz parameter if coming from quiz
-        const fromQuizParam = fromQuiz ? "&fromQuiz=true" : "";
+        // Set the subscription limit based on the level
+        if (subscriptionLevel === "premium_plus") {
+          matchLimit = 999; // Unlimited (effectively)
+          isPremiumUser = true;
+        } else if (subscriptionLevel === "premium_basic") {
+          matchLimit = 10;
+          isPremiumUser = true;
+        } else {
+          matchLimit = FREE_MATCH_LIMIT;
+          isPremiumUser = false;
+        }
 
-        // API call to get matches from database, passing viewed matches to avoid duplicates
+        // Update state with subscription info
+        setSubscribedMatchLimit(matchLimit);
+        setIsPremium(isPremiumUser);
+
+        // Calculate matches remaining - consistently for all users
+        if (subscriptionLevel === "free") {
+          setMatchesRemaining(Math.max(0, matchLimit - matchesViewedCount));
+        } else {
+          setMatchesRemaining(Math.max(0, matchLimit - matchesViewedCount));
+        }
+
+        // Show paywall if matches viewed exceeds subscription limit
+        if (matchesViewedCount >= matchLimit && !isPremiumUser) {
+          setShowPaywall(true);
+          return true; // Return true if we should show paywall
+        }
+
+        return false; // Continue with match fetch
+      };
+
+      // Check if we should show the paywall
+      const shouldShowPaywall = await checkSubscription();
+      if (shouldShowPaywall) {
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch new matches without using localStorage viewed array
+      try {
+        // API call to get matches from database
+        // The API should now track viewed matches server-side
         const response = await fetch(
-          `/api/matches?list=true${viewedQueryParam}${fromQuizParam}`
+          `/api/matches?list=true${fromQuiz ? "&fromQuiz=true" : ""}`
         );
 
         if (!response.ok) {
@@ -264,10 +345,8 @@ export default function Matches() {
           return;
         }
 
-        // Filter out any matches that might already be in viewedMatches
-        const filteredMatches = data.matches.filter(
-          (match: Match) => !viewedMatchesArray.includes(match._id)
-        );
+        // We'll trust the API to return matches the user hasn't seen
+        const filteredMatches = data.matches;
 
         if (filteredMatches.length === 0) {
           setNoMoreMatches(true);
@@ -286,94 +365,61 @@ export default function Matches() {
         // Update the current match
         setMatches([topMatch]);
 
-        // Save as last viewed match
-        localStorage.setItem("last_viewed_match", JSON.stringify(topMatch));
-
-        // Only count as viewed if coming from quiz or explicitly requesting a new match
+        // Process view counting for quiz-directed matches
         if (fromQuiz) {
-          // Remove from_quiz flag to prevent double-counting on page refreshes
+          // Remove from_quiz flag
           sessionStorage.removeItem("from_quiz");
 
-          // Check if we've already viewed this match
-          if (!viewedMatchesArray.includes(topMatch._id)) {
-            // Add to viewed matches list
-            viewedMatchesArray.push(topMatch._id);
-            localStorage.setItem(
-              "viewed_matches",
-              JSON.stringify(viewedMatchesArray)
+          // Always record this match in the database for quiz-directed matches
+          try {
+            // Call the API endpoint to record the match view
+            const recordViewResponse = await fetch(
+              `/api/matches/record-view?matchId=${topMatch._id}`
             );
-            setViewedMatches(viewedMatchesArray);
 
-            // Update total matches viewed count in state and localStorage
-            const newTotal = totalMatches + 1;
-            setTotalMatchesViewed(newTotal);
-            localStorage.setItem("total_matches_viewed", newTotal.toString());
+            if (recordViewResponse.ok) {
+              console.log("Match recorded in database after quiz completion");
 
-            // Update matches remaining
-            setMatchesRemaining(Math.max(0, matchLimit - newTotal));
+              // Get updated user profile to check total match count
+              const updatedUserResponse = await fetch("/api/users/profile");
+              if (updatedUserResponse.ok) {
+                const updatedUserData = await updatedUserResponse.json();
+                const newMatchesCount =
+                  updatedUserData.user?.previousMatches?.length || 0;
 
-            // Show paywall if reached limit
-            if (newTotal > matchLimit && !isPremiumUser) {
-              setShowPaywall(true);
+                // Update total matches viewed count based on database
+                setTotalMatchesViewed(newMatchesCount);
+
+                // Update matches remaining consistently
+                setMatchesRemaining(Math.max(0, matchLimit - newMatchesCount));
+
+                // Show paywall if reached limit
+                if (newMatchesCount > matchLimit && !isPremiumUser) {
+                  setShowPaywall(true);
+                }
+              }
+            } else {
+              console.error(
+                "Failed to record match view in database:",
+                await recordViewResponse.text()
+              );
             }
+          } catch (error) {
+            console.error("Error recording match view:", error);
           }
         }
-
-        setIsLoading(false);
       } catch (error) {
         console.error("Error fetching matches:", error);
         setError("Failed to fetch matches. Please try again.");
+      } finally {
         setIsLoading(false);
       }
     };
 
-    // For specific match ID, load that match
-    if (matchId) {
-      const fetchSpecificMatch = async () => {
-        try {
-          setIsLoading(true);
-          const response = await fetch(`/api/matches?userId=${matchId}`);
-          const data = await response.json();
+    initializeMatches();
+  }, [status, router, session]); // Removed matchId from dependencies
 
-          if (data.match) {
-            setMatches([data.match]);
-            setCurrentMatchIndex(0);
-
-            // Save as last viewed match
-            localStorage.setItem(
-              "last_viewed_match",
-              JSON.stringify(data.match)
-            );
-
-            // Don't count specific match views toward limit
-            // but do track it as viewed to avoid showing it again
-            if (!viewedMatchesArray.includes(data.match._id)) {
-              viewedMatchesArray.push(data.match._id);
-              localStorage.setItem(
-                "viewed_matches",
-                JSON.stringify(viewedMatchesArray)
-              );
-              setViewedMatches(viewedMatchesArray);
-            }
-          } else {
-            setError("Match not found");
-          }
-        } catch (error) {
-          console.error("Failed to fetch specific match:", error);
-          setError("Failed to load the requested match");
-        } finally {
-          setIsLoading(false);
-        }
-      };
-
-      fetchSpecificMatch();
-    } else {
-      // Check subscription first, then fetch matches if needed
-      checkSubscriptionLevel().then(fetchMatches);
-    }
-
-    // Only include router and matchId in dependencies as they're external
-  }, [router, matchId]);
+  //...........................///////////////////
 
   const nextMatch = async () => {
     try {
@@ -383,7 +429,7 @@ export default function Matches() {
       // For authenticated users, refresh subscription and match count from server
       let matchLimit = subscribedMatchLimit;
       let isPremiumUser = isPremium;
-      let currentTotalViewed = totalMatchesViewed;
+      let previousMatchesCount = 0;
 
       if (session) {
         try {
@@ -391,23 +437,11 @@ export default function Matches() {
           if (userResponse.ok) {
             const userData = await userResponse.json();
 
-            // Update matches viewed count from server
-            const serverMatchCount =
-              userData.user?.statistics?.matchesViewed || 0;
-            const storedTotalMatches = localStorage.getItem(
-              "total_matches_viewed"
-            );
-            const localCount = storedTotalMatches
-              ? parseInt(storedTotalMatches, 10)
-              : 0;
+            // Get accurate previous matches count
+            previousMatchesCount = userData.user?.previousMatches?.length || 0;
 
-            // Use the higher count for consistency
-            currentTotalViewed = Math.max(serverMatchCount, localCount);
-            setTotalMatchesViewed(currentTotalViewed);
-            localStorage.setItem(
-              "total_matches_viewed",
-              currentTotalViewed.toString()
-            );
+            // Use database count directly
+            setTotalMatchesViewed(previousMatchesCount);
 
             // Get updated subscription status
             const serverSubscription =
@@ -429,8 +463,8 @@ export default function Matches() {
               setIsPremium(false);
             }
 
-            // Recalculate matches remaining
-            setMatchesRemaining(Math.max(0, matchLimit - currentTotalViewed));
+            // Recalculate matches remaining based on previous matches consistently
+            setMatchesRemaining(Math.max(0, matchLimit - previousMatchesCount));
           }
         } catch (error) {
           console.error("Error refreshing user data:", error);
@@ -438,44 +472,16 @@ export default function Matches() {
         }
       }
 
-      // Get viewed matches from localStorage
-      let storedViewedMatches = localStorage.getItem("viewed_matches");
-      let viewedMatchesArray = storedViewedMatches
-        ? JSON.parse(storedViewedMatches)
-        : [];
-
-      // Add current match to viewed if it exists and isn't already there
-      if (
-        matches &&
-        matches.length > 0 &&
-        !viewedMatchesArray.includes(matches[0]._id)
-      ) {
-        viewedMatchesArray.push(matches[0]._id);
-        localStorage.setItem(
-          "viewed_matches",
-          JSON.stringify(viewedMatchesArray)
-        );
-        setViewedMatches(viewedMatchesArray);
-      }
-
       // Check if we've reached match limit for free users
       // Only show paywall after user has viewed all allowed matches and tries to see more
-      if (currentTotalViewed >= matchLimit && !isPremiumUser) {
+      if (!isPremiumUser && previousMatchesCount >= matchLimit) {
         setShowPaywall(true);
         setIsLoading(false);
         return;
       }
 
-      // Build query string with viewed matches
-      const viewedQueryParam =
-        viewedMatchesArray.length > 0
-          ? `&viewed=${encodeURIComponent(JSON.stringify(viewedMatchesArray))}`
-          : "";
-
       // API call to fetch next match with refresh=true to ensure it's counted in the database
-      const response = await fetch(
-        `/api/matches?refresh=true${viewedQueryParam}`
-      );
+      const response = await fetch(`/api/matches?refresh=true`);
 
       // Handle 404 (no more matches)
       if (response.status === 404) {
@@ -502,29 +508,21 @@ export default function Matches() {
       setMatches([data.match]);
       setShowDetailedProfile(false);
 
-      // Save as last viewed match
-      localStorage.setItem("last_viewed_match", JSON.stringify(data.match));
+      // Get updated user profile to check total match count
+      const updatedUserResponse = await fetch("/api/users/profile");
+      if (updatedUserResponse.ok) {
+        const updatedUserData = await updatedUserResponse.json();
+        const newMatchesCount =
+          updatedUserData.user?.previousMatches?.length || 0;
 
-      // Track as viewed in localStorage if not already
-      if (!viewedMatchesArray.includes(data.match._id)) {
-        viewedMatchesArray.push(data.match._id);
-        localStorage.setItem(
-          "viewed_matches",
-          JSON.stringify(viewedMatchesArray)
-        );
-        setViewedMatches(viewedMatchesArray);
+        // Update total matches viewed count based on database
+        setTotalMatchesViewed(newMatchesCount);
 
-        // Update total matches viewed count
-        const newTotal = currentTotalViewed + 1;
-        setTotalMatchesViewed(newTotal);
-        localStorage.setItem("total_matches_viewed", newTotal.toString());
+        // Update matches remaining consistently
+        setMatchesRemaining(Math.max(0, matchLimit - newMatchesCount));
 
-        // Update matches remaining
-        setMatchesRemaining(Math.max(0, matchLimit - newTotal));
-
-        // Show paywall if new count exceeds limit (will affect next click)
-        // We've just shown the last match, so don't show paywall yet
-        if (newTotal > matchLimit && !isPremiumUser) {
+        // Show paywall if reached limit
+        if (newMatchesCount > matchLimit && !isPremiumUser) {
           setShowPaywall(true);
         }
       }
@@ -793,6 +791,191 @@ export default function Matches() {
     );
   };
 
+  const closeQuiz = () => {
+    setShowQuiz(false);
+  };
+
+  // Contact information subscription modal
+  const ContactModal = () => {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl max-w-md w-full p-6 relative">
+          <button
+            onClick={closeContactModal}
+            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+          >
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+
+          <div className="text-center mb-6">
+            <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              {contactType === "phone" && (
+                <svg
+                  className="w-10 h-10 text-purple-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                  />
+                </svg>
+              )}
+              {contactType === "email" && (
+                <svg
+                  className="w-10 h-10 text-purple-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                  />
+                </svg>
+              )}
+              {contactType === "address" && (
+                <svg
+                  className="w-10 h-10 text-purple-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+              )}
+              {contactType === "social" && (
+                <svg
+                  className="w-10 h-10 text-purple-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
+                  />
+                </svg>
+              )}
+            </div>
+
+            <h3 className="text-xl font-bold text-gray-900">
+              {contactType === "phone" && "View Phone Number"}
+              {contactType === "email" && "View Email Address"}
+              {contactType === "address" && "View Full Address"}
+              {contactType === "social" && "View Social Profiles"}
+            </h3>
+
+            <p className="text-gray-600 mt-2">
+              Upgrade to Premium to access contact information and connect
+              directly with {matches[currentMatchIndex]?.name}
+            </p>
+          </div>
+
+          <div className="bg-purple-50 rounded-lg p-4 mb-6">
+            <div className="flex items-start mb-2">
+              <svg
+                className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+              <span className="text-gray-700">
+                Unlimited access to contact details
+              </span>
+            </div>
+            <div className="flex items-start mb-2">
+              <svg
+                className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+              <span className="text-gray-700">
+                Direct messaging with all matches
+              </span>
+            </div>
+            <div className="flex items-start">
+              <svg
+                className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+              <span className="text-gray-700">See who liked your profile</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={upgradeAccount}
+              className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white px-6 py-3 rounded-full font-medium transition-transform hover:scale-105"
+            >
+              Upgrade to Premium
+            </button>
+            <button
+              onClick={closeContactModal}
+              className="text-gray-600 hover:text-gray-800"
+            >
+              Maybe Later
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen bg-gradient-to-r from-purple-50 to-pink-50">
@@ -844,7 +1027,15 @@ export default function Matches() {
     );
   }
 
-  if (matches.length === 0) {
+  // Debug log for match state
+  console.log(
+    `Debug state - matches: ${matches.length}, hasPreviousMatches: ${hasPreviousMatches}, isLoading: ${isLoading}`
+  );
+
+  // Only show the empty state when:
+  // 1. User has no current matches loaded
+  // 2. We're not loading data
+  if (matches.length === 0 && !isLoading) {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="text-center py-16">
@@ -864,19 +1055,63 @@ export default function Matches() {
               />
             </svg>
           </div>
-          <h2 className="text-2xl font-bold text-gray-700 mb-2">
-            No matches yet
-          </h2>
-          <p className="text-gray-500 mb-8 max-w-md mx-auto">
-            We couldn't find any matches for you at the moment. Try adjusting
-            your preferences or check back later.
-          </p>
-          <Link
-            href="/"
-            className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-full font-medium inline-block"
-          >
-            Back to Home
-          </Link>
+
+          {hasPreviousMatches && matches.length === 0 && (
+            <>
+              <h2 className="text-2xl font-bold text-gray-700 mb-2">
+                No matches available
+              </h2>
+              <p className="text-gray-500 mb-8 max-w-md mx-auto">
+                We couldn't find any matches for you at the moment. Try
+                adjusting your preferences or check back later.
+              </p>
+              <Link
+                href="/"
+                className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-full font-medium inline-block"
+              >
+                Back to Home
+              </Link>
+            </>
+          )}
+
+          {!hasPreviousMatches && (
+            <>
+              <h2 className="text-2xl font-bold text-gray-700 mb-2">
+                Find Your Perfect Match
+              </h2>
+              <p className="text-gray-500 mb-6 max-w-md mx-auto">
+                Take our personality quiz to find your perfect matches! Our
+                AI-powered algorithm will analyze your answers to find
+                compatible partners.
+              </p>
+              <p className="text-purple-600 mb-8 max-w-md mx-auto font-medium">
+                Over 95% of our users find meaningful connections after taking
+                the quiz!
+              </p>
+              <button
+                className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white px-8 py-4 rounded-full font-bold text-lg inline-flex items-center transition-transform hover:scale-105"
+                onClick={() => setShowQuiz(true)}
+              >
+                <svg
+                  className="w-5 h-5 mr-2"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                  />
+                </svg>
+                Start Personality Quiz
+              </button>
+              {showQuiz && (
+                <PersonalityQuiz isOpen={showQuiz} onClose={closeQuiz} />
+              )}
+            </>
+          )}
         </div>
       </div>
     );
@@ -1111,189 +1346,9 @@ export default function Matches() {
   // Get current match
   const currentMatch = matches[currentMatchIndex];
 
-  // Contact information subscription modal
-  const ContactModal = () => {
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-xl max-w-md w-full p-6 relative">
-          <button
-            onClick={closeContactModal}
-            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
-          >
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-
-          <div className="text-center mb-6">
-            <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              {contactType === "phone" && (
-                <svg
-                  className="w-10 h-10 text-purple-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                  />
-                </svg>
-              )}
-              {contactType === "email" && (
-                <svg
-                  className="w-10 h-10 text-purple-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                  />
-                </svg>
-              )}
-              {contactType === "address" && (
-                <svg
-                  className="w-10 h-10 text-purple-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                  />
-                </svg>
-              )}
-              {contactType === "social" && (
-                <svg
-                  className="w-10 h-10 text-purple-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
-                  />
-                </svg>
-              )}
-            </div>
-
-            <h3 className="text-xl font-bold text-gray-900">
-              {contactType === "phone" && "View Phone Number"}
-              {contactType === "email" && "View Email Address"}
-              {contactType === "address" && "View Full Address"}
-              {contactType === "social" && "View Social Profiles"}
-            </h3>
-
-            <p className="text-gray-600 mt-2">
-              Upgrade to Premium to access contact information and connect
-              directly with {currentMatch.name}
-            </p>
-          </div>
-
-          <div className="bg-purple-50 rounded-lg p-4 mb-6">
-            <div className="flex items-start mb-2">
-              <svg
-                className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
-              <span className="text-gray-700">
-                Unlimited access to contact details
-              </span>
-            </div>
-            <div className="flex items-start mb-2">
-              <svg
-                className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
-              <span className="text-gray-700">
-                Direct messaging with all matches
-              </span>
-            </div>
-            <div className="flex items-start">
-              <svg
-                className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
-              <span className="text-gray-700">See who liked your profile</span>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-3">
-            <button
-              onClick={upgradeAccount}
-              className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white px-6 py-3 rounded-full font-medium transition-transform hover:scale-105"
-            >
-              Upgrade to Premium
-            </button>
-            <button
-              onClick={closeContactModal}
-              className="text-gray-600 hover:text-gray-800"
-            >
-              Maybe Later
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="container mx-auto px-4 py-8">
+      {showQuiz && <PersonalityQuiz isOpen={showQuiz} onClose={closeQuiz} />}
       {showContactModal && <ContactModal />}
       {showProposalModal && <ProposalModal />}
       {hasPersonalityData ? (

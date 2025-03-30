@@ -30,27 +30,27 @@ export async function GET(request: NextRequest) {
     // Calculate matches viewed from previousMatches array
     const matchesViewed = user.previousMatches?.length || 0;
 
-    // Prepare user data for response (excluding sensitive fields)
-    const userData = {
-      name: user.name,
-      email: user.email,
-      profileImage: user.profileImage,
-      subscriptionLevel: user.subscription?.planId || "free",
-      personalityType: user.personalityType,
-      interests: user.interests,
-      relationshipGoals: user.relationshipGoals,
-      location: user.location,
-      bio: user.bio,
-      statistics: {
-        matchesViewed: matchesViewed,
-        conversationsStarted: user.interactions?.messagesSent || 0,
-        profileCompleteness: user.profileCompleted ? 100 : 0,
-      },
-      previousMatches: matchesViewed,
+    // Convert the Mongoose document to a plain JavaScript object
+    const userObject = user.toObject() as any;
+
+    // Remove sensitive fields
+    if (userObject.password) delete userObject.password;
+    if (userObject.__v !== undefined) delete userObject.__v;
+
+    // Add computed fields for backward compatibility
+    userObject.statistics = {
+      matchesViewed: matchesViewed,
+      conversationsStarted: user.interactions?.messagesSent || 0,
+      profileCompleteness: user.profileCompleted ? 100 : 0,
     };
 
+    // Ensure previousMatches is always an array
+    if (!userObject.previousMatches) {
+      userObject.previousMatches = [];
+    }
+
     return NextResponse.json({
-      user: userData,
+      user: userObject,
       success: true,
     });
   } catch (error: any) {

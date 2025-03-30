@@ -125,12 +125,12 @@ export const authOptions: NextAuthOptions = {
 
             // Create a new user record with data from OAuth
             const newUser = new User({
-              name: user.name || profile?.name || "User",
+              name: user.name || "User",
               email: user.email,
               profileImage: user.image,
               // Set required fields with default values
               age: 18,
-              gender: "Not specified",
+              gender: "Not specified", // Default gender - user will set this in profile
               orientation: "Not specified",
               location: {
                 type: "Point",
@@ -141,33 +141,15 @@ export const authOptions: NextAuthOptions = {
               oauthProvider: account.provider, // Store which provider was used
               createdAt: new Date(),
               updatedAt: new Date(),
-              // Generate a secure random password for OAuth users (they'll never use it)
-              password:
-                Math.random().toString(36).slice(-10) +
-                Math.random().toString(36).slice(-10),
+              password: Math.random().toString(36).slice(-20), // Random password
             });
 
             // Save the new user to database
             await newUser.save();
             console.log(`New user created with ID: ${newUser._id}`);
-
-            // Return URL with query param to indicate user needs to complete profile
-            return true;
           }
 
-          // For existing users, check if profile is completed
-          if (!existingUser.profileCompleted) {
-            console.log(
-              `Existing user found but profile not completed, redirecting to profile completion:`,
-              user.email
-            );
-            return true;
-          }
-
-          console.log(
-            `Existing user found with completed profile for ${user.email}, proceeding with login`
-          );
-          return true;
+          return true; // Allow sign in
         } catch (error) {
           console.error("Error in OAuth sign in:", error);
           return false; // Reject sign in on error
@@ -214,7 +196,7 @@ export const authOptions: NextAuthOptions = {
         };
 
         user.id = token.id as string;
-        user.isAdmin = token.isAdmin as boolean;
+        user.isAdmin = (token.roles as string[]).includes("admin");
         user.roles = token.roles as string[];
       }
       return session;

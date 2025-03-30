@@ -10,6 +10,7 @@ import Link from "next/link";
 import PhotoUploader from "@/components/PhotoUploader";
 import { Button } from "@/components/ui/button";
 import { IUser } from "@/models/clientUser";
+import PersonalityQuiz from "@/components/PersonalityQuiz";
 
 // Define validation schema for profile
 const profileSchema = z.object({
@@ -49,6 +50,7 @@ export default function Profile() {
   const [imagePreview, setImagePreview] = useState("");
   const [isDemo, setIsDemo] = useState(false);
   const [additionalPhotos, setAdditionalPhotos] = useState<string[]>([]);
+  const [showPersonalityQuiz, setShowPersonalityQuiz] = useState(false);
 
   const {
     register,
@@ -705,6 +707,24 @@ export default function Profile() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Personality Quiz Button */}
+      <div className="mt-8 flex justify-center">
+        <Button
+          onClick={() => setShowPersonalityQuiz(true)}
+          className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded"
+        >
+          Take Personality Quiz
+        </Button>
+      </div>
+
+      {/* Personality Quiz Component */}
+      {showPersonalityQuiz && (
+        <PersonalityQuiz
+          isOpen={showPersonalityQuiz}
+          onClose={() => setShowPersonalityQuiz(false)}
+        />
       )}
     </div>
   );

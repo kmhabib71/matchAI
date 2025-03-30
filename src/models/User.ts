@@ -122,7 +122,7 @@ const UserSchema: Schema = new Schema(
         return !this.oauthProvider;
       },
     },
-    age: { type: Number, required: true },
+    age: { type: Number, required: false },
     gender: { type: String, required: true },
     orientation: { type: String, required: true },
     location: {
