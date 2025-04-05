@@ -1,64 +1,76 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
-import Image from "next/image";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import {
-  FaArrowLeft,
-  FaEnvelope,
-  FaRegClock,
-  FaCheck,
-  FaTimes,
-} from "react-icons/fa";
-import MatchCompatibilityInfo from "@/components/MatchCompatibilityInfo";
+import Image from "next/image";
+import { useRouter, useParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 
-// Interface for match data
-interface MatchData {
-  id: string;
+interface Match {
+  _id: string;
+  userId: string;
   name: string;
   age: number;
-  gender: string;
-  location:
-    | string
-    | {
-        city?: string;
-        country?: string;
-        type?: string;
-        coordinates?: number[];
-      };
+  location: {
+    city?: string;
+    country?: string;
+    coordinates?: number[];
+    type?: string;
+  };
+  profileImage: string;
+  personalityType?: string;
   bio?: string;
   interests?: string[];
-  personalityType?: string;
-  personality?: {
-    traits?: string[];
-  };
-  profileImage?: string;
+  gender: string;
+  orientation: string;
+  relationshipGoals?: string[];
   compatibilityScore: number;
-  hasProposal: boolean;
   explanation?: string;
-  viewedAt?: Date;
+  matchDate: string;
+  lastActive: string;
+  hasUnreadMessages?: boolean;
+  occupation?: string;
+  education?: string;
+  height?: string;
+  relationshipStatus?: string;
+  lookingFor?: string;
+  phoneNumber?: string;
+  email?: string;
+  address?: string;
+  socialProfiles?: {
+    instagram?: string;
+    facebook?: string;
+    twitter?: string;
+  };
+  compatibilityReasons?: string[];
+  sharedValues?: string[];
+  topTraits?: string[];
 }
 
-// Match detail page component
 export default function MatchDetail() {
-  const params = useParams();
-  const router = useRouter();
   const { data: session, status } = useSession();
-  const [match, setMatch] = useState<MatchData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const params = useParams();
+  const matchId = params.id as string;
+
+  const [match, setMatch] = useState<Match | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [hasPersonalityData, setHasPersonalityData] = useState(false);
+  const [isPremium, setIsPremium] = useState(false);
+  const [showDetailedProfile, setShowDetailedProfile] = useState(false);
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [contactType, setContactType] = useState<
+    "phone" | "email" | "address" | "social"
+  >("phone");
+
+  // Add state for proposal functionality
   const [showProposalModal, setShowProposalModal] = useState(false);
   const [proposalMessage, setProposalMessage] = useState("");
-  const [sendingProposal, setSendingProposal] = useState(false);
-  const [proposalError, setProposalError] = useState<string | null>(null);
-  const [proposalSuccess, setProposalSuccess] = useState<string | null>(null);
+  const [isSendingProposal, setIsSendingProposal] = useState(false);
+  const [proposalSuccess, setProposalSuccess] = useState(false);
+  const [proposalError, setProposalError] = useState("");
 
-  // Get match ID from URL parameters
-  const matchId = params?.id as string;
-
-  // Fetch match data when component mounts
   useEffect(() => {
     if (status === "loading") return;
 
@@ -67,211 +79,584 @@ export default function MatchDetail() {
       return;
     }
 
-    fetchMatchDetails();
-  }, [status, matchId, router]);
+    // Check for personality quiz data
+    const personalityData = localStorage.getItem("personality_answers");
+    setHasPersonalityData(!!personalityData);
 
-  // Function to fetch match details
-  const fetchMatchDetails = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+    const fetchMatchDetails = async () => {
+      try {
+        setIsLoading(true);
 
-      // Fetch match from API
-      const response = await fetch(`/api/matches/${matchId}`);
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch match details");
-      }
-
-      const data = await response.json();
-
-      if (data.success && data.data) {
-        setMatch(data.data);
-      } else {
-        // Try fallback to previously stored matches
-        const storedMatches = localStorage.getItem("previousMatches");
-        if (storedMatches) {
-          const matches = JSON.parse(storedMatches);
-          const foundMatch = matches.find(
-            (m: any) => m.id === matchId || m._id === matchId
+        // First get user subscription status
+        const userResponse = await fetch("/api/users/profile");
+        if (userResponse.ok) {
+          const userData = await userResponse.json();
+          const subscriptionLevel = userData.user?.subscriptionLevel || "free";
+          setIsPremium(
+            subscriptionLevel === "premium_plus" ||
+              subscriptionLevel === "premium_basic"
           );
-          if (foundMatch) {
-            setMatch(foundMatch);
-          } else {
-            throw new Error("Match not found");
+        }
+
+        // Fetch the match by ID
+        const matchResponse = await fetch(`/api/matches/${matchId}`);
+
+        if (!matchResponse.ok) {
+          throw new Error("Failed to fetch match details");
+        }
+
+        const matchData = await matchResponse.json();
+
+        if (matchData.match) {
+          setMatch(matchData.match);
+
+          // Record this match view in the database
+          try {
+            const recordViewResponse = await fetch(
+              `/api/matches/record-view?matchId=${matchId}`
+            );
+
+            if (recordViewResponse.ok) {
+              console.log("Match view recorded in database");
+            } else {
+              console.error(
+                "Failed to record match view:",
+                await recordViewResponse.text()
+              );
+            }
+          } catch (error) {
+            console.error("Error recording match view:", error);
           }
         } else {
           throw new Error("Match not found");
         }
+      } catch (error) {
+        console.error("Error fetching match details:", error);
+        setError("Failed to fetch match details. Please try again.");
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error: any) {
-      console.error("Error fetching match details:", error);
-      setError(error.message || "Failed to load match details");
-    } finally {
-      setLoading(false);
-    }
+    };
+
+    fetchMatchDetails();
+  }, [status, router, matchId]);
+
+  const toggleDetailedProfile = () => {
+    setShowDetailedProfile(!showDetailedProfile);
   };
 
-  // Function to send a proposal
-  const sendProposal = async () => {
-    try {
-      setSendingProposal(true);
-      setProposalError(null);
-      setProposalSuccess(null);
+  const viewContactInfo = (type: "phone" | "email" | "address" | "social") => {
+    setContactType(type);
+    setShowContactModal(true);
+  };
 
-      if (!proposalMessage.trim()) {
-        setProposalError("Please write a message before sending");
-        return;
+  const closeContactModal = () => {
+    setShowContactModal(false);
+  };
+
+  const upgradeAccount = () => {
+    router.push("/subscription");
+  };
+
+  const startChat = (matchId: string) => {
+    if (!isPremium) {
+      setContactType("phone");
+      setShowContactModal(true);
+      return;
+    }
+    router.push(`/chat/${matchId}`);
+  };
+
+  const viewProfile = (matchId: string) => {
+    router.push(`/profile/${matchId}`);
+  };
+
+  // Helper function to extract personality traits from MBTI type
+  const extractPersonalityTraits = (personalityType?: string): string[] => {
+    if (!personalityType) return ["Friendly", "Thoughtful", "Caring", "Kind"];
+
+    const traits: Record<string, string[]> = {
+      INTJ: ["Analytical", "Strategic", "Independent", "Decisive"],
+      INTP: ["Logical", "Innovative", "Curious", "Objective"],
+      ENTJ: ["Decisive", "Efficient", "Goal-oriented", "Direct"],
+      ENTP: ["Inventive", "Enthusiastic", "Adaptable", "Quick-thinking"],
+      INFJ: ["Insightful", "Principled", "Idealistic", "Compassionate"],
+      INFP: ["Creative", "Empathetic", "Authentic", "Idealistic"],
+      ENFJ: ["Charismatic", "Inspiring", "Supportive", "Empathetic"],
+      ENFP: ["Passionate", "Imaginative", "People-oriented", "Enthusiastic"],
+      ISTJ: ["Practical", "Reliable", "Systematic", "Organized"],
+      ISFJ: ["Nurturing", "Detail-oriented", "Loyal", "Traditional"],
+      ESTJ: ["Organized", "Traditional", "Direct", "Practical"],
+      ESFJ: ["Warm", "Conscientious", "Cooperative", "Supportive"],
+      ISTP: ["Versatile", "Pragmatic", "Independent", "Analytical"],
+      ISFP: ["Artistic", "Sensitive", "Harmonious", "Spontaneous"],
+      ESTP: ["Energetic", "Practical", "Spontaneous", "Adaptable"],
+      ESFP: ["Enthusiastic", "Friendly", "Fun-loving", "Spontaneous"],
+    };
+
+    return (
+      traits[personalityType] || ["Friendly", "Thoughtful", "Caring", "Kind"]
+    );
+  };
+
+  const sendProposal = async () => {
+    if (!proposalMessage.trim()) {
+      setProposalError("Please enter a message with your proposal");
+      return;
+    }
+
+    try {
+      setIsSendingProposal(true);
+      setProposalError("");
+
+      if (!match) {
+        throw new Error("No match selected");
       }
 
+      // Call API to send proposal
       const response = await fetch("/api/proposals/send", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          recipientId: matchId,
+          recipientId: match._id,
           message: proposalMessage,
         }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.message || "Failed to send proposal");
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to send proposal");
       }
 
-      setProposalSuccess("Your proposal has been sent! They will be notified.");
+      // Show success message
+      setProposalSuccess(true);
 
-      // Update match data to reflect proposal sent
-      if (match) {
-        setMatch({
-          ...match,
-          hasProposal: true,
-        });
-      }
+      // Clear message
+      setProposalMessage("");
 
-      // Close modal after 2 seconds
+      // Auto-close modal after 3 seconds
       setTimeout(() => {
         setShowProposalModal(false);
-      }, 2000);
+        setProposalSuccess(false);
+      }, 3000);
     } catch (error: any) {
-      console.error("Error sending proposal:", error);
-      setProposalError(error.message || "Failed to send proposal");
+      console.error("Failed to send proposal:", error);
+      setProposalError(
+        error.message || "Failed to send proposal. Please try again."
+      );
     } finally {
-      setSendingProposal(false);
+      setIsSendingProposal(false);
     }
   };
 
-  if (loading) {
+  // Proposal Modal Component
+  const ProposalModal = () => {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen p-4">
-        <div className="w-16 h-16 border-t-4 border-purple-600 border-solid rounded-full animate-spin"></div>
-        <p className="mt-4 text-gray-600 dark:text-gray-300">
-          Loading match details...
-        </p>
+      <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl max-w-md w-full p-6 relative">
+          <button
+            onClick={() => setShowProposalModal(false)}
+            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+          >
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+
+          <div className="text-center mb-6">
+            <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg
+                className="w-10 h-10 text-purple-600"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905a3.61 3.61 0 01-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"
+                />
+              </svg>
+            </div>
+
+            <h3 className="text-xl font-bold text-gray-900">
+              Send a Proposal to {match?.name}
+            </h3>
+
+            <p className="text-gray-600 mt-2">
+              Write a personal message to express your interest
+            </p>
+          </div>
+
+          {proposalSuccess ? (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+              <div className="flex items-center">
+                <svg
+                  className="w-5 h-5 text-green-500 mr-2"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+                <span className="text-green-700">
+                  Proposal sent successfully! They'll be notified.
+                </span>
+              </div>
+            </div>
+          ) : (
+            <>
+              {proposalError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                  <div className="flex items-center">
+                    <svg
+                      className="w-5 h-5 text-red-500 mr-2"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <span className="text-red-700">{proposalError}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="mb-6">
+                <label
+                  htmlFor="proposal-message"
+                  className="block text-sm font-medium text-gray-700 mb-2"
+                >
+                  Your Message
+                </label>
+                <textarea
+                  id="proposal-message"
+                  rows={5}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
+                  placeholder="Hi, I really enjoyed reading your profile and I think we might have a lot in common. I'd love to get to know you better..."
+                  value={proposalMessage}
+                  onChange={(e) => setProposalMessage(e.target.value)}
+                ></textarea>
+                <p className="text-xs text-gray-500 mt-1">
+                  Make your message personal and highlight what interested you
+                  about their profile
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={sendProposal}
+                  disabled={isSendingProposal}
+                  className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white px-6 py-3 rounded-full font-medium transition-transform hover:scale-105 disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                  {isSendingProposal ? (
+                    <span className="flex items-center justify-center">
+                      <span className="mr-3 h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      Sending...
+                    </span>
+                  ) : (
+                    "Send Proposal"
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowProposalModal(false)}
+                  className="text-gray-600 hover:text-gray-800"
+                >
+                  Maybe Later
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     );
-  }
+  };
 
-  if (error) {
+  // Contact information subscription modal
+  const ContactModal = () => {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen p-4">
-        <div className="max-w-md w-full bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 text-center">
-          <svg
-            className="mx-auto h-12 w-12 text-red-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
+      <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl max-w-md w-full p-6 relative">
+          <button
+            onClick={closeContactModal}
+            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
-          </svg>
-          <h3 className="mt-2 text-lg font-medium text-gray-900 dark:text-white">
-            Error Loading Match
-          </h3>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {error}
-          </p>
-          <div className="mt-4">
-            <Link
-              href="/dashboard"
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
             >
-              Return to Dashboard
-            </Link>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+
+          <div className="text-center mb-6">
+            <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              {contactType === "phone" && (
+                <svg
+                  className="w-10 h-10 text-purple-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                  />
+                </svg>
+              )}
+              {contactType === "email" && (
+                <svg
+                  className="w-10 h-10 text-purple-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                  />
+                </svg>
+              )}
+              {contactType === "address" && (
+                <svg
+                  className="w-10 h-10 text-purple-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+              )}
+              {contactType === "social" && (
+                <svg
+                  className="w-10 h-10 text-purple-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
+                  />
+                </svg>
+              )}
+            </div>
+
+            <h3 className="text-xl font-bold text-gray-900">
+              {contactType === "phone" && "View Phone Number"}
+              {contactType === "email" && "View Email Address"}
+              {contactType === "address" && "View Full Address"}
+              {contactType === "social" && "View Social Profiles"}
+            </h3>
+
+            <p className="text-gray-600 mt-2">
+              Upgrade to Premium to access contact information and connect
+              directly with {match?.name}
+            </p>
           </div>
+
+          <div className="bg-purple-50 rounded-lg p-4 mb-6">
+            <div className="flex items-start mb-2">
+              <svg
+                className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+              <span className="text-gray-700">
+                Unlimited access to contact details
+              </span>
+            </div>
+            <div className="flex items-start mb-2">
+              <svg
+                className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+              <span className="text-gray-700">
+                Direct messaging with all matches
+              </span>
+            </div>
+            <div className="flex items-start">
+              <svg
+                className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+              <span className="text-gray-700">See who liked your profile</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={upgradeAccount}
+              className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white px-6 py-3 rounded-full font-medium transition-transform hover:scale-105"
+            >
+              Upgrade to Premium
+            </button>
+            <button
+              onClick={closeContactModal}
+              className="text-gray-600 hover:text-gray-800"
+            >
+              Maybe Later
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center min-h-screen bg-gradient-to-r from-purple-50 to-pink-50">
+        <div className="text-center">
+          <div className="relative w-24 h-24 mx-auto mb-6">
+            <div className="absolute top-0 left-0 w-full h-full border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin"></div>
+            <div className="absolute top-0 left-0 w-full h-full flex items-center justify-center">
+              <svg
+                className="w-10 h-10 text-purple-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+                />
+              </svg>
+            </div>
+          </div>
+          <h2 className="text-xl font-bold text-purple-700 mb-2">
+            Loading Match Details
+          </h2>
+          <p className="text-gray-600">Getting everything ready for you...</p>
         </div>
       </div>
     );
   }
 
-  if (!match) {
+  if (error || !match) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen p-4">
-        <div className="max-w-md w-full bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 text-center">
-          <svg
-            className="mx-auto h-12 w-12 text-gray-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="text-center p-8 max-w-md">
+          <h2 className="text-2xl font-bold text-red-600 mb-4">Error</h2>
+          <p className="text-gray-700 mb-4">{error || "Match not found"}</p>
+          <Link
+            href="/dashboard"
+            className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 6h16M4 10h16M4 14h16M4 18h16"
-            />
-          </svg>
-          <h3 className="mt-2 text-lg font-medium text-gray-900 dark:text-white">
-            No Match Found
-          </h3>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            This match could not be found.
-          </p>
-          <div className="mt-4">
-            <Link
-              href="/dashboard"
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
-            >
-              Return to Dashboard
-            </Link>
-          </div>
+            Back to Dashboard
+          </Link>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
-      {/* Header with back button */}
-      <div className="bg-white dark:bg-gray-800 shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center">
-            <button
-              onClick={() => router.back()}
-              className="mr-4 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              aria-label="Go back"
-            >
-              <FaArrowLeft className="h-5 w-5 text-gray-600 dark:text-gray-300" />
-            </button>
-            <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
-              Match Details
-            </h1>
-          </div>
-        </div>
+    <div className="container mx-auto px-4 py-8">
+      {showContactModal && <ContactModal />}
+      {showProposalModal && <ProposalModal />}
+
+      <div className="mb-6">
+        <Link
+          href="/dashboard"
+          className="text-purple-600 hover:text-purple-800 flex items-center"
+        >
+          <svg
+            className="w-5 h-5 mr-2"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M10 19l-7-7m0 0l7-7m-7 7h18"
+            />
+          </svg>
+          Back to Dashboard
+        </Link>
       </div>
 
-      {/* Main content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
-          {/* Profile Header */}
-          <div className="relative h-64 sm:h-80 bg-gradient-to-r from-purple-600 to-pink-500">
-            {match.profileImage && (
+      <div className="max-w-4xl mx-auto">
+        <div className="bg-white rounded-xl shadow-xl overflow-hidden">
+          <div className="flex flex-col md:flex-row">
+            {/* Match image section */}
+            <div className="md:w-1/2 relative h-96 md:h-auto">
               <Image
                 src={match.profileImage}
                 alt={`${match.name}'s profile`}
@@ -279,201 +664,476 @@ export default function MatchDetail() {
                 className="object-cover"
                 unoptimized // Using placeholder images
               />
-            )}
-
-            {/* Compatibility Score */}
-            <div className="absolute top-4 right-4 bg-white dark:bg-gray-800 text-purple-600 dark:text-purple-400 text-lg font-bold rounded-full h-16 w-16 flex items-center justify-center shadow-lg">
-              <div className="text-center">
-                <span>{match.compatibilityScore}%</span>
+              {/* Compatibility score badge */}
+              <div className="absolute top-4 right-4 bg-gradient-to-r from-purple-600 to-pink-500 text-white text-lg font-bold rounded-full h-16 w-16 flex items-center justify-center shadow-lg">
+                <div className="text-center">
+                  <span className="text-lg">{match.compatibilityScore}%</span>
+                  <div className="text-xs">Match</div>
+                </div>
               </div>
+              {/* Personality match badge */}
+              {hasPersonalityData && (
+                <div className="absolute top-4 left-4">
+                  <div className="bg-gradient-to-r from-purple-600 to-pink-500 text-white px-3 py-1 rounded-full text-sm font-medium shadow-md">
+                    Personal Match
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
 
-          {/* Profile Info */}
-          <div className="p-6">
-            <div className="flex flex-col md:flex-row md:justify-between md:items-start">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {match.name}, {match.age}
-                </h2>
-                <p className="text-gray-600 dark:text-gray-400 mt-1">
-                  {typeof match.location === "object"
-                    ? `${match.location.city || ""}, ${
-                        match.location.country || ""
-                      }`
-                    : match.location || "Unknown location"}
-                </p>
-
-                {match.viewedAt && (
-                  <div className="flex items-center text-sm text-gray-500 dark:text-gray-400 mt-2">
-                    <FaRegClock className="mr-1" />
-                    Matched on {new Date(match.viewedAt).toLocaleDateString()}
+            {/* Match details section */}
+            <div className="md:w-1/2 p-6">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h2 className="text-3xl font-bold">
+                    {match.name}, {match.age}
+                  </h2>
+                  <p className="text-gray-600">
+                    {typeof match.location === "object"
+                      ? `${match.location.city || ""}, ${
+                          match.location.country || ""
+                        }`
+                      : match.location}
+                  </p>
+                </div>
+                {match.hasUnreadMessages && (
+                  <div className="bg-red-500 text-white px-3 py-1 rounded-full text-xs shadow-md">
+                    New Message
                   </div>
                 )}
               </div>
 
-              <div className="mt-4 md:mt-0 flex flex-col sm:flex-row gap-3">
-                {!match.hasProposal ? (
-                  <button
-                    onClick={() => setShowProposalModal(true)}
-                    className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+              <div className="mb-6">
+                <div className="flex justify-between text-sm text-gray-500 mb-4">
+                  <div>
+                    Matched {new Date(match.matchDate).toLocaleDateString()}
+                  </div>
+                  <div>Active {match.lastActive}</div>
+                </div>
+                <div className="bg-gradient-to-r from-purple-50 via-purple-100 to-pink-50 rounded-xl p-6 mb-6 shadow-md border border-purple-100">
+                  <h3 className="text-xl font-bold text-purple-800 mb-4 flex items-center">
+                    <svg
+                      className="w-6 h-6 mr-2 text-purple-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                      />
+                    </svg>
+                    Match Analysis
+                  </h3>
+
+                  {/* Compatibility score visualization */}
+                  <div className="flex items-center mb-5">
+                    <div className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600 flex items-center">
+                      <span className="mr-3 text-4xl">🌟</span>
+                      <span>{match.compatibilityScore}% Compatible</span>
+                    </div>
+                  </div>
+
+                  {/* Display algorithm explanation */}
+                  <p className="text-gray-700 text-lg mb-5 font-medium">
+                    {match.explanation ||
+                      (match.compatibilityScore > 90
+                        ? "You have exceptional compatibility with this match"
+                        : match.compatibilityScore > 80
+                        ? "You have great compatibility with this match"
+                        : "You have good compatibility with this match")}
+                  </p>
+
+                  <div className="space-y-3 mb-6">
+                    <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
+                      <p className="text-gray-700">
+                        Their {match.personalityType || "unique"} personality
+                        type suggests they are{" "}
+                        {match.topTraits?.slice(0, 3).join(", ").toLowerCase()}
+                      </p>
+                    </div>
+
+                    <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
+                      <p className="text-gray-700">
+                        They tend to focus on{" "}
+                        {match.personalityType?.includes("N")
+                          ? "ideas, possibilities, and the future"
+                          : "practical matters, details, and the present"}
+                      </p>
+                    </div>
+
+                    <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
+                      <p className="text-gray-700">
+                        They approach decisions with{" "}
+                        {match.personalityType?.includes("T")
+                          ? "logical analysis and objective reasoning"
+                          : match.personalityType?.includes("F")
+                          ? "empathy and consideration for how others will be affected"
+                          : "a balance of logic and emotional awareness"}
+                      </p>
+                    </div>
+
+                    <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
+                      <p className="text-gray-700">
+                        Their{" "}
+                        {match.personalityType?.includes("E")
+                          ? "extroverted"
+                          : "introverted"}{" "}
+                        nature means they{" "}
+                        {match.personalityType?.includes("E")
+                          ? "gain energy from social interactions and engagement with others"
+                          : "recharge through quiet reflection and alone time"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-lg shadow-sm border border-purple-100 mb-5">
+                    <p className="text-gray-700 mb-2">
+                      You have {hasPersonalityData ? "several" : "some"}{" "}
+                      complementary traits that could create a balanced
+                      relationship
+                    </p>
+
+                    <p className="text-gray-700">
+                      While you may have different approaches in some areas,
+                      these differences could help you grow together
+                    </p>
+                  </div>
+
+                  <div className="bg-gradient-to-r from-purple-500 to-pink-500 p-4 rounded-lg text-white shadow-md">
+                    <p className="font-semibold text-center">
+                      We recommend starting a conversation to explore your
+                      connection further.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bio section */}
+              <h3 className="text-lg font-semibold mb-3">Bio</h3>
+              <div className="mb-6">
+                <p className="text-gray-700">{match.bio}</p>
+              </div>
+
+              {/* Basic info section */}
+              <div className="bg-purple-50 rounded-lg p-4 mb-6">
+                <h3 className="text-lg font-semibold mb-3 flex items-center">
+                  <svg
+                    className="w-5 h-5 mr-2 text-purple-600"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
                   >
-                    <FaEnvelope className="mr-2" /> Send Proposal
-                  </button>
-                ) : (
-                  <div className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600">
-                    <FaCheck className="mr-2" /> Proposal Sent
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                    />
+                  </svg>
+                  Basic Info
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-4">
+                  <div className="flex items-center">
+                    <span className="text-gray-500 mr-2">Occupation:</span>
+                    <span className="text-gray-700">
+                      {match.occupation || "Not specified"}
+                    </span>
                   </div>
-                )}
+                  <div className="flex items-center">
+                    <span className="text-gray-500 mr-2">Education:</span>
+                    <span className="text-gray-700">
+                      {match.education || "Not specified"}
+                    </span>
+                  </div>
+                  <div className="flex items-center">
+                    <span className="text-gray-500 mr-2">Height:</span>
+                    <span className="text-gray-700">
+                      {match.height || "Not specified"}
+                    </span>
+                  </div>
+                  <div className="flex items-center">
+                    <span className="text-gray-500 mr-2">Status:</span>
+                    <span className="text-gray-700">
+                      {match.relationshipStatus || "Single"}
+                    </span>
+                  </div>
+                  <div className="flex items-center col-span-2">
+                    <span className="text-gray-500 mr-2">Looking for:</span>
+                    <span className="text-gray-700">
+                      {match.lookingFor || "Relationship"}
+                    </span>
+                  </div>
+                </div>
               </div>
-            </div>
 
-            {/* Bio */}
-            {match.bio && (
-              <div className="mt-6">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                  About {match.name}
+              {/* Premium feature highlight to motivate subscription */}
+              {!isPremium && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                  <div className="flex items-start">
+                    <div className="flex-shrink-0 mt-1">
+                      <svg
+                        className="h-5 w-5 text-yellow-500"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                        />
+                      </svg>
+                    </div>
+                    <div className="ml-3">
+                      <h3 className="text-sm font-medium text-yellow-800">
+                        Upgrade to Connect
+                      </h3>
+                      <p className="text-sm text-yellow-700 mt-1">
+                        Premium members are{" "}
+                        <span className="font-semibold">5x more likely</span> to
+                        find their perfect match. Unlock contact details and
+                        start meaningful conversations!
+                      </p>
+                      <button
+                        onClick={upgradeAccount}
+                        className="mt-2 text-sm font-medium text-purple-600 hover:text-purple-800"
+                      >
+                        Upgrade Now →
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Contact buttons section */}
+              <div className="bg-gray-50 border border-gray-100 rounded-lg p-4 mb-6">
+                <h3 className="text-lg font-semibold mb-3 flex items-center">
+                  <svg
+                    className="w-5 h-5 mr-2 text-purple-600"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    />
+                  </svg>
+                  Contact Information
                 </h3>
-                <p className="mt-2 text-gray-600 dark:text-gray-400">
-                  {match.bio}
-                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => viewContactInfo("phone")}
+                    className="flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-sm"
+                  >
+                    <svg
+                      className="w-4 h-4 mr-2 text-purple-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                      />
+                    </svg>
+                    Phone Number
+                  </button>
+                  <button
+                    onClick={() => viewContactInfo("email")}
+                    className="flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-sm"
+                  >
+                    <svg
+                      className="w-4 h-4 mr-2 text-purple-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                      />
+                    </svg>
+                    Email Address
+                  </button>
+                  <button
+                    onClick={() => viewContactInfo("address")}
+                    className="flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-sm"
+                  >
+                    <svg
+                      className="w-4 h-4 mr-2 text-purple-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                      />
+                    </svg>
+                    Full Address
+                  </button>
+                  <button
+                    onClick={() => viewContactInfo("social")}
+                    className="flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-sm"
+                  >
+                    <svg
+                      className="w-4 h-4 mr-2 text-purple-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
+                      />
+                    </svg>
+                    Social Profiles
+                  </button>
+                </div>
               </div>
-            )}
 
-            {/* Personality */}
-            {match.personalityType && (
-              <div className="mt-6">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                  Personality
-                </h3>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
-                    {match.personalityType}
-                  </span>
-                  {match.personality?.traits?.map(
-                    (trait: string, index: number) => (
+              <div className="mb-8">
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {(match.interests || [])
+                    .slice(0, 4)
+                    .map((interest, index) => (
                       <span
                         key={index}
-                        className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200"
+                        className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm"
                       >
-                        {trait}
+                        {interest}
                       </span>
-                    )
+                    ))}
+                  {(match.interests || []).length === 0 && (
+                    <>
+                      <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm">
+                        Travel
+                      </span>
+                      <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm">
+                        Music
+                      </span>
+                    </>
                   )}
                 </div>
+                <p className="text-gray-500 text-sm">
+                  Common interests based on profile
+                </p>
               </div>
-            )}
 
-            {/* Interests */}
-            {match.interests && match.interests.length > 0 && (
-              <div className="mt-6">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                  Interests
-                </h3>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {match.interests.map((interest: string, index: number) => (
-                    <span
-                      key={index}
-                      className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-                    >
-                      {interest}
-                    </span>
-                  ))}
-                </div>
+              <div className="flex gap-3 mb-6">
+                <button
+                  onClick={() => viewProfile(match._id)}
+                  className="bg-white border border-purple-600 text-purple-600 hover:bg-purple-50 px-6 py-3 rounded-full font-medium flex-1 flex justify-center items-center"
+                >
+                  <svg
+                    className="h-5 w-5 mr-2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                    />
+                  </svg>
+                  View Full Profile
+                </button>
+                <button
+                  onClick={() => startChat(match._id)}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-full font-medium flex-1 flex justify-center items-center"
+                >
+                  <svg
+                    className="h-5 w-5 mr-2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                    />
+                  </svg>
+                  Start Chat
+                </button>
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* Compatibility Info Section */}
-        <div className="mt-8">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-            Compatibility Analysis
-          </h2>
-          <MatchCompatibilityInfo
-            compatibilityScore={match.compatibilityScore}
-            personalityType={match.personalityType}
-            traits={match.personality?.traits}
-            interests={match.interests}
-            explanation={match.explanation}
-          />
-        </div>
-      </div>
-
-      {/* Proposal Modal */}
-      {showProposalModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6 relative">
-            <button
-              onClick={() => setShowProposalModal(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-500 dark:hover:text-gray-300"
-              aria-label="Close modal"
-            >
-              <FaTimes className="h-5 w-5" />
-            </button>
-
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">
-              Send Proposal to {match.name}
-            </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-              Write a personal message to start a conversation
-            </p>
-
-            {proposalSuccess && (
-              <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded-md">
-                {proposalSuccess}
-              </div>
-            )}
-
-            {proposalError && (
-              <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 rounded-md">
-                {proposalError}
-              </div>
-            )}
-
-            <textarea
-              value={proposalMessage}
-              onChange={(e) => setProposalMessage(e.target.value)}
-              placeholder={`Hello ${match.name}! I noticed we matched and I'd like to get to know you better...`}
-              className="w-full h-32 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white resize-none"
-              disabled={sendingProposal || !!proposalSuccess}
-            />
-
-            <div className="mt-4 flex justify-end space-x-3">
+              {/* Proposal button */}
               <button
-                onClick={() => setShowProposalModal(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 dark:text-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md"
-                disabled={sendingProposal}
+                onClick={() => setShowProposalModal(true)}
+                className="w-full mb-6 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white px-6 py-3 rounded-full font-medium flex items-center justify-center"
               >
-                Cancel
+                <svg
+                  className="h-5 w-5 mr-2"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+                  />
+                </svg>
+                Send Proposal
               </button>
 
-              <button
-                onClick={sendProposal}
-                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-md flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={
-                  sendingProposal ||
-                  !proposalMessage.trim() ||
-                  !!proposalSuccess
-                }
-              >
-                {sendingProposal ? (
-                  <>
-                    <div className="w-4 h-4 border-t-2 border-white border-solid rounded-full animate-spin mr-2"></div>
-                    Sending...
-                  </>
-                ) : proposalSuccess ? (
-                  <>
-                    <FaCheck className="mr-2" /> Sent
-                  </>
-                ) : (
-                  "Send Proposal"
-                )}
-              </button>
+              <div className="mt-6 border-t border-gray-200 pt-6">
+                <Link
+                  href="/dashboard"
+                  className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 px-6 py-3 rounded-full font-medium flex items-center justify-center"
+                >
+                  <svg
+                    className="h-5 w-5 mr-2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M10 19l-7-7m0 0l7-7m-7 7h18"
+                    />
+                  </svg>
+                  Back to Dashboard
+                </Link>
+              </div>
             </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

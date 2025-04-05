@@ -256,7 +256,9 @@ export async function PUT(req: NextRequest) {
     );
 
     // Update the user with structured preferences
-    const updateData = {
+    const updateData: {
+      $set: Record<string, any>;
+    } = {
       $set: {
         name: data.name,
         age: data.age,
@@ -271,9 +273,42 @@ export async function PUT(req: NextRequest) {
         "preferences.dealBreakers": preferences.dealBreakers,
         lifestyle: lifestyle, // Update the entire lifestyle object
         profileImage: data.profileImage,
+        profileCompleted:
+          data.profileCompleted !== undefined
+            ? data.profileCompleted
+            : user.profileCompleted,
         updatedAt: new Date(),
       },
     };
+
+    // Add personalityQuiz data if provided
+    if (data.personalityQuiz) {
+      if (data.personalityQuiz.completed) {
+        updateData.$set["personalityQuiz.completed"] =
+          data.personalityQuiz.completed;
+      }
+
+      if (data.personalityQuiz.completedAt) {
+        updateData.$set["personalityQuiz.completedAt"] =
+          data.personalityQuiz.completedAt;
+      }
+
+      if (data.personalityQuiz.personalityType) {
+        updateData.$set["personalityQuiz.personalityType"] =
+          data.personalityQuiz.personalityType;
+      }
+
+      if (data.personalityQuiz.traits) {
+        updateData.$set["personalityQuiz.traits"] = data.personalityQuiz.traits;
+      }
+
+      // Handle answers as a map
+      if (data.personalityQuiz.answers) {
+        Object.entries(data.personalityQuiz.answers).forEach(([key, value]) => {
+          updateData.$set[`personalityQuiz.answers.${key}`] = value;
+        });
+      }
+    }
 
     console.log("Update operation:", JSON.stringify(updateData, null, 2));
 
