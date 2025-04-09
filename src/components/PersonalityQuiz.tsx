@@ -312,7 +312,7 @@ export default function PersonalityQuiz({
       ],
       type: "radio",
       description:
-        "সম্পর্কে স্বাধীনতা ও নিরাপত্তার অনুভূতি। আপনার সাথে মানানসই সঙ্গী খুঁজতে সত্যি উত্তর দিন।",
+        "সম্পর্কে স্বাধীনতা ও নিরাপত্তার অনুভূতি। আপনার সাথে মানানসই সঙ্গী খুঁজে সত্যি উত্তর দিন।",
     },
     {
       id: 8,
@@ -1281,18 +1281,18 @@ export default function PersonalityQuiz({
 
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-[220px] overflow-y-auto pb-2">
           {filteredDistricts.map((district) => {
-            const isSelected = selected === district.bn_name;
+            const isSelected = selected === district.name; // Changed from bn_name to name
             return (
               <div
-                key={district.bn_name}
-                onClick={() => onSelect(district.bn_name)}
+                key={district.bn_name} // Changed from bn_name to name
+                onClick={() => onSelect(district.name)} // Changed from bn_name to name
                 className={`p-3 border rounded-lg cursor-pointer text-center transition-all ${
                   isSelected
                     ? "border-blue-500 bg-blue-50 shadow-md"
                     : "border-gray-200 hover:border-blue-300"
                 }`}
               >
-                {district.bn_name}
+                {district.bn_name} {/* Keep displaying Bengali name in UI */}
               </div>
             );
           })}

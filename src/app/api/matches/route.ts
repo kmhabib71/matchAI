@@ -5,9 +5,10 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import {
   calculateCompatibilityScore,
-  generateMatchExplanation,
+  findTop5Soulmates,
   getPersonalityTraits,
 } from "@/lib/ai/matchingAlgorithm";
+import { analyzeTopMatches } from "@/lib/ai/openai";
 import jwt from "jsonwebtoken";
 
 // Helper function to get user from token
@@ -31,7 +32,6 @@ async function getUserFromToken(req: NextRequest) {
       email?: string;
     };
     console.log("decodedd is: ", decoded);
-    debugger;
     // Check if we have a valid user ID
     const userId = decoded.userId || decoded.id;
     if (!userId) {
@@ -43,13 +43,11 @@ async function getUserFromToken(req: NextRequest) {
     await dbConnect();
     const user = await User.findById(userId);
     console.log("userr is: ", user);
-    debugger;
     if (!user) {
       console.log(`User with ID ${userId} not found`);
       return null;
     }
     console.log("user is: ", user);
-    debugger;
     return user;
   } catch (error) {
     console.error("Token verification error:", error);
@@ -114,15 +112,10 @@ export async function GET(request: NextRequest) {
 
     // Add the current user's ID to the exclusion list
     const excludedUserIds = [
-      ...new Set([
-        ...previouslyMatchedUserIds,
-        ...viewedMatches,
-        currentUser._id?.toString() || "",
-      ]),
-    ];
-
-    // Filter out empty strings
-    const filteredExcludedIds = excludedUserIds.filter((id) => id);
+      currentUser._id.toString(),
+      ...previouslyMatchedUserIds,
+      ...viewedMatches,
+    ].filter((id) => id); // Filter out empty strings
 
     // Get query parameters
     const specificUserId = searchParams.get("userId");
@@ -133,333 +126,534 @@ export async function GET(request: NextRequest) {
     // Check if we should count this as a new match view
     const shouldCountView = refresh || fromQuiz || listMode;
 
-    // If we're in list mode, return all potential matches
+    // If we're in list mode, return all potential matches using the 3-step algorithm
     if (listMode) {
-      // Get a list of potential matches
-      let matchQuery: any = { _id: { $nin: filteredExcludedIds } };
-      const potentialMatches = await User.find(matchQuery).limit(20);
+      // Ensure database connection
+      await dbConnect();
 
-      if (!potentialMatches || potentialMatches.length === 0) {
-        return NextResponse.json({
-          matches: [],
-          message: "No matches available",
-        });
-      }
+      // STEP 1: MongoDB Query - Get top 20 candidates based on essential criteria
+      const currentUserAnswers = currentUser.personalityQuiz?.answers || {};
 
-      // Calculate compatibility scores
-      const formattedMatches = potentialMatches.map((match) => {
-        const score = calculateCompatibilityScore(currentUser, match);
-        const explanation = generateMatchExplanation(
-          score,
-          match.personalityType || ""
-        );
-
-        // Extract personality traits
-        const personalityTraits = match.personalityType
-          ? getPersonalityTraits(match.personalityType)
-          : ["thoughtful", "unique", "interesting"];
-
-        // Find shared interests
-        const sharedInterests = (currentUser.interests || []).filter(
-          (interest) => (match.interests || []).includes(interest)
-        );
-
-        // Generate compatibility reasons
-        const compatibilityReasons = [];
-        if (sharedInterests.length > 0) {
-          compatibilityReasons.push(
-            `You share ${sharedInterests.length} interests`
-          );
-        }
-        if (
-          match.location?.city &&
-          currentUser.location?.city &&
-          match.location.city === currentUser.location.city
-        ) {
-          compatibilityReasons.push("You live in the same city");
-        }
-        if (match.personalityType && currentUser.personalityType) {
-          compatibilityReasons.push("Your personality types are compatible");
-        }
-
-        return {
-          _id: match._id,
-          userId: match._id,
-          name: match.name,
-          age: match.age,
-          gender: match.gender,
-          orientation: match.orientation || "",
-          location: match.location,
-          bio: match.bio || "",
-          profileImage: match.profileImage || "/avatars/default.jpg",
-          personalityType: match.personalityType || "",
-          interests: match.interests || [],
-          relationshipGoals: match.relationshipGoals || [],
-          compatibilityScore: score,
-          explanation,
-          matchDate: new Date().toISOString(),
-          lastActive: "Recently",
-          occupation: "",
-          education: "",
-          height: "",
-          relationshipStatus: "Single",
-          lookingFor: "",
-          compatibilityReasons,
-          sharedValues: sharedInterests,
-          topTraits: personalityTraits.slice(0, 3),
-        };
-      });
-
-      // Sort by compatibility score
-      formattedMatches.sort(
-        (a, b) => b.compatibilityScore - a.compatibilityScore
+      // Build the MongoDB aggregation pipeline
+      const aggregationPipeline = buildMatchingPipeline(
+        currentUser,
+        excludedUserIds
       );
 
-      return NextResponse.json({ matches: formattedMatches });
+      // Execute the query to get top 20 candidates
+      let candidateMatches = await User.aggregate(aggregationPipeline);
+
+      // Add minimum match fallback after candidateMatches aggregation
+      if (candidateMatches.length === 0) {
+        // Fallback to get at least one match if no matches meet the criteria
+        candidateMatches = await User.aggregate([
+          {
+            $match: {
+              "personalityQuiz.completed": true,
+              _id: { $ne: currentUser._id },
+            },
+          },
+          { $limit: 1 },
+        ]);
+      }
+
+      // STEP 2: Refine with TypeScript algorithm to get top 5
+      // Extract necessary information and calculate detailed compatibility scores
+      const top5Candidates = findTop5Soulmates(currentUser, candidateMatches);
+
+      // STEP 3: Use OpenAI to analyze and select top 3 matches with detailed reasons
+      const candidatesWithFullData = await Promise.all(
+        top5Candidates.map(async (score) => {
+          const user = await User.findById(score.userId);
+          return { user, score };
+        })
+      );
+
+      const top3Matches = await analyzeTopMatches(
+        currentUser,
+        candidatesWithFullData.filter((item) => item.user) // Filter out any null users
+      );
+
+      // Return the matches
+      return NextResponse.json({
+        matches: top3Matches,
+        total: top3Matches.length,
+      });
     }
 
-    // If a specific user is requested, return only that user
+    // If specifying a single user match
     if (specificUserId) {
+      await dbConnect();
       const specificUser = await User.findById(specificUserId);
 
       if (!specificUser) {
         return NextResponse.json(
-          { error: "Requested user not found" },
+          { error: "Specified user not found" },
           { status: 404 }
         );
       }
 
       // Calculate compatibility score
-      const compatibilityScore = calculateCompatibilityScore(
-        currentUser,
-        specificUser
-      );
+      const score = calculateCompatibilityScore(currentUser, specificUser);
 
-      // Generate explanation
-      const explanation = generateMatchExplanation(
-        compatibilityScore,
-        specificUser.personalityType || ""
-      );
+      // Generate explanation for this specific match
+      const matchResult = await analyzeTopMatches(currentUser, [
+        { user: specificUser, score },
+      ]);
 
-      // Extract personality traits
-      const personalityTraits = specificUser.personalityType
-        ? getPersonalityTraits(specificUser.personalityType)
-        : ["thoughtful", "unique", "interesting"];
-
-      // Find shared interests
-      const sharedInterests = (currentUser.interests || []).filter((interest) =>
-        (specificUser.interests || []).includes(interest)
-      );
-
-      // Generate compatibility reasons
-      const compatibilityReasons = [];
-      if (sharedInterests.length > 0) {
-        compatibilityReasons.push(
-          `You share ${sharedInterests.length} interests`
-        );
-      }
-      if (
-        specificUser.location?.city &&
-        currentUser.location?.city &&
-        specificUser.location.city === currentUser.location.city
-      ) {
-        compatibilityReasons.push("You live in the same city");
-      }
-      if (specificUser.personalityType && currentUser.personalityType) {
-        compatibilityReasons.push("Your personality types are compatible");
-      }
-
-      // Create the match response
-      const matchResponse = {
-        match: {
-          _id: specificUser._id,
-          userId: specificUser._id,
-          name: specificUser.name,
-          age: specificUser.age,
-          gender: specificUser.gender,
-          orientation: specificUser.orientation || "",
-          location: specificUser.location,
-          bio: specificUser.bio || "",
-          profileImage: specificUser.profileImage || "/avatars/default.jpg",
-          personalityType: specificUser.personalityType || "",
-          interests: specificUser.interests || [],
-          relationshipGoals: specificUser.relationshipGoals || [],
-          compatibilityScore,
-          explanation,
-          matchDate: new Date().toISOString(),
-          lastActive: "Recently",
-          occupation: "",
-          education: "",
-          height: "",
-          relationshipStatus: "Single",
-          lookingFor: "",
-          compatibilityReasons,
-          sharedValues: sharedInterests,
-          topTraits: personalityTraits.slice(0, 3),
-        },
-      };
-
-      // Add to previousMatches if authenticated, only requested with explicit refresh, and not already there
-      if (session && currentUser && shouldCountView) {
-        const specificUserId = specificUser._id?.toString() || "";
-
-        if (
-          specificUserId &&
-          !previouslyMatchedUserIds.includes(specificUserId)
-        ) {
-          await User.findByIdAndUpdate(currentUser._id, {
-            $push: {
-              previousMatches: {
-                userId: specificUser._id,
-                compatibilityScore,
-                explanation,
-                viewedAt: new Date(),
-              },
-            },
-            $inc: { "statistics.matchesViewed": 1 },
-          });
-        }
-      }
-
-      // Return the response
-      return NextResponse.json(matchResponse);
+      return NextResponse.json({
+        match: matchResult[0],
+      });
     }
 
-    // Find potentially matching users, excluding those already seen
-    let matchQuery: any = {
-      _id: { $nin: filteredExcludedIds },
-    };
-
-    // Find potentially matching users
-    let potentialMatches = await User.find(matchQuery);
-
-    if (!potentialMatches || potentialMatches.length === 0) {
-      return NextResponse.json(
-        {
-          error: "No matches found",
-          message:
-            "No matches available at this time. Try adjusting your preferences or check back later.",
-        },
-        { status: 404 }
-      );
-    }
-
-    // Calculate compatibility scores for each user
-    const scoredMatches = potentialMatches.map((match) => {
-      const score = calculateCompatibilityScore(currentUser, match);
-      const explanation = generateMatchExplanation(
-        score,
-        match.personalityType || ""
-      );
-
-      // Extract personality traits
-      const personalityTraits = match.personalityType
-        ? getPersonalityTraits(match.personalityType)
-        : ["thoughtful", "unique", "interesting"];
-
-      // Find shared interests
-      const sharedInterests = (currentUser.interests || []).filter((interest) =>
-        (match.interests || []).includes(interest)
-      );
-
-      // Generate compatibility reasons
-      const compatibilityReasons = [];
-      if (sharedInterests.length > 0) {
-        compatibilityReasons.push(
-          `You share ${sharedInterests.length} interests`
-        );
-      }
-      if (
-        match.location?.city &&
-        currentUser.location?.city &&
-        match.location.city === currentUser.location.city
-      ) {
-        compatibilityReasons.push("You live in the same city");
-      }
-      if (match.personalityType && currentUser.personalityType) {
-        compatibilityReasons.push("Your personality types are compatible");
-      }
-
-      return {
-        score,
-        explanation,
-        personalityTraits,
-        sharedInterests,
-        compatibilityReasons,
-        match,
-      };
-    });
-
-    // Sort by compatibility score (highest first)
-    scoredMatches.sort((a, b) => b.score - a.score);
-
-    // Return the highest match by default
-    const topMatch = scoredMatches[0];
-
-    if (!topMatch) {
-      return NextResponse.json({ error: "No matches found" }, { status: 404 });
-    }
-
-    // Create the match response
-    const matchResponse = {
-      match: {
-        _id: topMatch.match._id,
-        userId: topMatch.match._id,
-        name: topMatch.match.name,
-        age: topMatch.match.age,
-        gender: topMatch.match.gender,
-        orientation: topMatch.match.orientation || "",
-        location: topMatch.match.location,
-        bio: topMatch.match.bio || "",
-        profileImage: topMatch.match.profileImage || "/avatars/default.jpg",
-        personalityType: topMatch.match.personalityType || "",
-        interests: topMatch.match.interests || [],
-        relationshipGoals: topMatch.match.relationshipGoals || [],
-        compatibilityScore: topMatch.score,
-        explanation: topMatch.explanation,
-        matchDate: new Date().toISOString(),
-        lastActive: "Recently",
-        occupation: "",
-        education: "",
-        height: "",
-        relationshipStatus: "Single",
-        lookingFor: "",
-        compatibilityReasons: topMatch.compatibilityReasons,
-        sharedValues: topMatch.sharedInterests,
-        topTraits: topMatch.personalityTraits.slice(0, 3),
-      },
-    };
-
-    // For authenticated users, store this match in their previousMatches array
-    // Only if explicitly requested with refresh or fromQuiz parameters
-    if (session && currentUser && shouldCountView) {
-      const matchId = topMatch.match._id?.toString() || "";
-
-      // Check if match already exists in previousMatches
-      const matchExists = matchId && previouslyMatchedUserIds.includes(matchId);
-
-      if (matchId && !matchExists) {
-        // Add to previousMatches in database, but don't reset any existing ones
-        await User.findByIdAndUpdate(currentUser._id, {
-          $push: {
-            previousMatches: {
-              userId: topMatch.match._id,
-              compatibilityScore: topMatch.score,
-              explanation: topMatch.explanation,
-              viewedAt: new Date(),
-            },
-          },
-          $inc: { "statistics.matchesViewed": 1 },
-        });
-      }
-    }
-
-    return NextResponse.json(matchResponse);
-  } catch (error) {
-    console.error("Error in matches API:", error);
+    // If we reach here, no valid mode was specified
     return NextResponse.json(
-      { error: "Failed to fetch matches" },
+      { error: "Invalid request - specify list=true or userId parameter" },
+      { status: 400 }
+    );
+  } catch (error) {
+    console.error("Error in match API:", error);
+    return NextResponse.json(
+      { error: "Server error processing matches" },
       { status: 500 }
     );
   }
+}
+
+// Helper function to build the MongoDB aggregation pipeline for matching
+function buildMatchingPipeline(currentUser: any, excludedUserIds: string[]) {
+  const currentUserAnswers = currentUser.personalityQuiz?.answers || {};
+
+  // Extract key demographic preferences
+  const userGender = currentUserAnswers.profile_2 || ""; // e.g., "male" or "female"
+  const oppositeGender = userGender === "male" ? "female" : "male";
+  const userReligion = currentUserAnswers.profile_8 || ""; // e.g., "islam"
+  const userMaritalStatus = currentUserAnswers.profile_9 || ""; // e.g., "single"
+
+  // Extract personality traits for scoring
+  const userPersonalityTraits = {
+    openness: parseInt(currentUserAnswers.personality_1?.split(":")[0] || "3"),
+    conscientiousness: parseInt(
+      currentUserAnswers.personality_2?.split(":")[0] || "3"
+    ),
+    extraversion: parseInt(
+      currentUserAnswers.personality_3?.split(":")[0] || "3"
+    ),
+    agreeableness: parseInt(
+      currentUserAnswers.personality_4?.split(":")[0] || "3"
+    ),
+    neuroticism: parseInt(
+      currentUserAnswers.personality_5?.split(":")[0] || "3"
+    ),
+    secureAttachment: parseInt(
+      currentUserAnswers.personality_7?.split(":")[0] || "3"
+    ),
+    anxiousAttachment: parseInt(
+      currentUserAnswers.personality_6?.split(":")[0] || "3"
+    ),
+    values: {
+      family: parseInt(currentUserAnswers.personality_9?.split(":")[0] || "3"),
+      career: parseInt(currentUserAnswers.personality_10?.split(":")[0] || "3"),
+      adventure: parseInt(
+        currentUserAnswers.personality_11?.split(":")[0] || "3"
+      ),
+      stability: parseInt(
+        currentUserAnswers.personality_12?.split(":")[0] || "3"
+      ),
+    },
+  };
+
+  // Extract hobbies for matching
+  const userHobbies = (currentUserAnswers.profile_12 || "")
+    .split(",")
+    .map((h: string) => h.trim().toLowerCase());
+
+  // Extract education preferences
+  const minEducation = currentUserAnswers.preferences_4?.toLowerCase() || "";
+  const educationLevels = [
+    "ssc",
+    "hsc",
+    "diploma",
+    "bachelor's",
+    "master's",
+    "phd",
+  ];
+  const educationIndex = educationLevels.indexOf(minEducation);
+  const acceptableEducation =
+    educationIndex >= 0
+      ? educationLevels.slice(educationIndex)
+      : educationLevels;
+
+  // Extract age preferences with flexibility
+  const agePreference = currentUserAnswers.preferences_1 || "";
+  const ageMatch = agePreference.match(/(\d+)-(\d+)/);
+  const minAge = ageMatch ? parseInt(ageMatch[1], 10) : 18;
+  const maxAge = ageMatch ? parseInt(ageMatch[2], 10) : 100;
+  const currentYear = new Date().getFullYear();
+  const minBirthYear = (currentYear - maxAge - 5).toString(); // Allow 5 years flexibility
+  const maxBirthYear = (currentYear - minAge + 5).toString(); // Allow 5 years flexibility
+
+  // City preference with flexibility
+  const cityPreference = currentUserAnswers.preferences_5 || "";
+  const userCity = currentUserAnswers.profile_4 || ""; // Now in English
+  const prefersSameCity =
+    cityPreference.toLowerCase().includes("same") ||
+    cityPreference.toLowerCase().includes("হ্যাঁ");
+
+  // Profession preferences
+  const professionPreferences = (currentUserAnswers.preferences_2 || "")
+    .split(",")
+    .map((p: string) => p.trim().toLowerCase());
+
+  // Build the pipeline
+  return [
+    // Stage 1: Match essential criteria
+    {
+      $match: {
+        // Exclude current user and previously matched/viewed users
+        _id: { $nin: excludedUserIds.map((id) => new RegExp(id, "i")) },
+
+        // Must have completed personality quiz
+        "personalityQuiz.completed": true,
+
+        // Match gender (opposite gender)
+        "personalityQuiz.answers.profile_2": oppositeGender,
+
+        // Match religion (exact match required)
+        "personalityQuiz.answers.profile_8": userReligion,
+
+        // Match marital status appropriately
+        ...(userMaritalStatus === "single"
+          ? { "personalityQuiz.answers.profile_9": "single" }
+          : { "personalityQuiz.answers.profile_9": { $ne: "single" } }),
+
+        // Match birth year for age range (with flexibility)
+        "personalityQuiz.answers.profile_3": {
+          $gte: minBirthYear,
+          $lte: maxBirthYear,
+        },
+      },
+    },
+
+    // Stage 2: Add fields for scoring
+    {
+      $addFields: {
+        // Personality trait similarity scores
+        personalityScores: {
+          openness: {
+            $abs: {
+              $subtract: [
+                userPersonalityTraits.openness,
+                {
+                  $toInt: {
+                    $arrayElemAt: [
+                      {
+                        $split: ["$personalityQuiz.answers.personality_1", ":"],
+                      },
+                      0,
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+          conscientiousness: {
+            $abs: {
+              $subtract: [
+                userPersonalityTraits.conscientiousness,
+                {
+                  $toInt: {
+                    $arrayElemAt: [
+                      {
+                        $split: ["$personalityQuiz.answers.personality_2", ":"],
+                      },
+                      0,
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+          extraversion: {
+            $abs: {
+              $subtract: [
+                userPersonalityTraits.extraversion,
+                {
+                  $toInt: {
+                    $arrayElemAt: [
+                      {
+                        $split: ["$personalityQuiz.answers.personality_3", ":"],
+                      },
+                      0,
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+          agreeableness: {
+            $abs: {
+              $subtract: [
+                userPersonalityTraits.agreeableness,
+                {
+                  $toInt: {
+                    $arrayElemAt: [
+                      {
+                        $split: ["$personalityQuiz.answers.personality_4", ":"],
+                      },
+                      0,
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+          neuroticism: {
+            $abs: {
+              $subtract: [
+                userPersonalityTraits.neuroticism,
+                {
+                  $toInt: {
+                    $arrayElemAt: [
+                      {
+                        $split: ["$personalityQuiz.answers.personality_5", ":"],
+                      },
+                      0,
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+
+        // Attachment style scores
+        attachmentScores: {
+          secure: {
+            $abs: {
+              $subtract: [
+                userPersonalityTraits.secureAttachment,
+                {
+                  $toInt: {
+                    $arrayElemAt: [
+                      {
+                        $split: ["$personalityQuiz.answers.personality_7", ":"],
+                      },
+                      0,
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+          anxious: {
+            $abs: {
+              $subtract: [
+                userPersonalityTraits.anxiousAttachment,
+                {
+                  $toInt: {
+                    $arrayElemAt: [
+                      {
+                        $split: ["$personalityQuiz.answers.personality_6", ":"],
+                      },
+                      0,
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+
+        // Hobbies matching score
+        hobbiesScore: {
+          $let: {
+            vars: {
+              candidateHobbies: {
+                $map: {
+                  input: {
+                    $split: ["$personalityQuiz.answers.profile_12", ","],
+                  },
+                  as: "hobby",
+                  in: { $trim: { input: { $toLower: "$$hobby" } } },
+                },
+              },
+            },
+            in: {
+              $divide: [
+                {
+                  $size: {
+                    $setIntersection: ["$$candidateHobbies", userHobbies],
+                  },
+                },
+                {
+                  $max: [
+                    1,
+                    {
+                      $size: { $setUnion: ["$$candidateHobbies", userHobbies] },
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+
+        // Education score - match if candidate meets minimum education requirement
+        educationScore: {
+          $cond: {
+            if: {
+              $in: ["$personalityQuiz.answers.profile_7", acceptableEducation],
+            },
+            then: 1,
+            else: 0.5, // Reduced penalty for education mismatch
+          },
+        },
+
+        // City score with personality override
+        cityScore: {
+          $cond: {
+            if: {
+              $and: [
+                prefersSameCity,
+                { $eq: ["$personalityQuiz.answers.profile_4", userCity] },
+              ],
+            },
+            then: 1,
+            else: {
+              $cond: {
+                if: {
+                  $gt: [
+                    {
+                      $subtract: [
+                        1,
+                        {
+                          $divide: [
+                            {
+                              $add: [
+                                "$personalityScores.openness",
+                                "$personalityScores.conscientiousness",
+                                "$personalityScores.extraversion",
+                                "$personalityScores.agreeableness",
+                                "$personalityScores.neuroticism",
+                              ],
+                            },
+                            20,
+                          ],
+                        },
+                      ],
+                    },
+                    0.9, // 90% personality match threshold
+                  ],
+                },
+                then: 1, // Full score if personality match > 90%
+                else: 0.7, // Default score for different cities
+              },
+            },
+          },
+        },
+
+        // Profession score - match if candidate's profession is in user's preferences
+        professionScore: {
+          $cond: {
+            if: {
+              $or: professionPreferences.map((prof: string) => ({
+                $regexMatch: {
+                  input: "$personalityQuiz.answers.profile_5",
+                  regex: prof,
+                  options: "i",
+                },
+              })),
+            },
+            then: 1,
+            else: 0.6, // Reduced penalty for profession mismatch
+          },
+        },
+      },
+    },
+
+    // Stage 3: Calculate preliminary score with personality emphasis
+    {
+      $addFields: {
+        personalityMatchScore: {
+          $subtract: [
+            1,
+            {
+              $divide: [
+                {
+                  $add: [
+                    "$personalityScores.openness",
+                    "$personalityScores.conscientiousness",
+                    "$personalityScores.extraversion",
+                    "$personalityScores.agreeableness",
+                    "$personalityScores.neuroticism",
+                  ],
+                },
+                20, // Normalize to 0-1 range
+              ],
+            },
+          ],
+        },
+        attachmentMatchScore: {
+          $subtract: [
+            1,
+            {
+              $divide: [
+                {
+                  $add: [
+                    "$attachmentScores.secure",
+                    "$attachmentScores.anxious",
+                  ],
+                },
+                12, // Normalize to 0-1 range
+              ],
+            },
+          ],
+        },
+        // Add full match bonus
+        fullMatchBonus: {
+          $cond: {
+            if: {
+              $and: [
+                { $eq: ["$educationScore", 1] },
+                { $eq: ["$cityScore", 1] },
+                { $eq: ["$professionScore", 1] },
+                { $gte: ["$personalityMatchScore", 0.9] },
+                { $gte: ["$attachmentMatchScore", 0.9] },
+                { $gte: ["$hobbiesScore", 0.8] },
+              ],
+            },
+            then: 0.1, // 10% bonus for full matches
+            else: 0,
+          },
+        },
+      },
+    },
+
+    // Stage 4: Project fields and calculate final preliminary score
+    {
+      $project: {
+        personalityQuiz: 1,
+        email: 1,
+        name: 1,
+        preliminaryScore: {
+          $add: [
+            { $multiply: ["$personalityMatchScore", 0.4] }, // Personality weight: 40%
+            { $multiply: ["$attachmentMatchScore", 0.2] }, // Attachment weight: 20%
+            { $multiply: ["$hobbiesScore", 0.15] }, // Hobbies weight: 15%
+            { $multiply: ["$educationScore", 0.1] }, // Education weight: 10%
+            { $multiply: ["$cityScore", 0.075] }, // City weight: 7.5%
+            { $multiply: ["$professionScore", 0.075] }, // Profession weight: 7.5%
+            "$fullMatchBonus", // Full match bonus: 10%
+          ],
+        },
+      },
+    },
+
+    // Stage 5: Sort by preliminary score
+    { $sort: { preliminaryScore: -1 } },
+
+    // Stage 6: Limit to top 20 candidates
+    { $limit: 20 },
+  ];
 }
