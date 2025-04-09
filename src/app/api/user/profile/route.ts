@@ -167,7 +167,7 @@ export async function PUT(req: NextRequest) {
 
     // Get user from session or token
     const user = await getUser(req);
-
+    console.log("Userreq:", req);
     if (!user) {
       return NextResponse.json(
         { error: "You must be logged in to update your profile" },
@@ -176,8 +176,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const data = await req.json();
-    console.log("Received profile update data:", JSON.stringify(data, null, 2));
-
+    console.log("Datareq:", data);
     // Validate the data
     if (!data) {
       return NextResponse.json({ error: "No data provided" }, { status: 400 });

@@ -15,6 +15,9 @@ export async function analyzeCompatibility(
 ): Promise<{
   score: number;
   explanation: string;
+  compatibilityReasons: string[];
+  sharedValues: string[];
+  topTraits: string[];
 }> {
   try {
     // Create a prompt that describes both users and asks for compatibility analysis
@@ -48,6 +51,9 @@ export async function analyzeCompatibility(
     return {
       score: result.compatibilityScore,
       explanation: result.explanation,
+      compatibilityReasons: result.compatibilityReasons || [],
+      sharedValues: result.sharedValues || [],
+      topTraits: result.topTraits || [],
     };
   } catch (error) {
     console.error("OpenAI API error:", error);
@@ -63,13 +69,45 @@ export async function batchAnalyzeCompatibility(
   user: IUser,
   potentialMatches: IUser[],
   limit: number = 5
-): Promise<Array<{ match: IUser; score: number; explanation: string }>> {
+): Promise<
+  Array<{
+    match: IUser;
+    score: number;
+    explanation: string;
+    compatibilityReasons: string[];
+    sharedValues: string[];
+    topTraits: string[];
+  }>
+> {
   try {
+    // First filter for opposite gender matches
+    const oppositeGenderMatches = potentialMatches.filter((match) => {
+      const userGender = user.gender.toLowerCase();
+      const matchGender = match.gender.toLowerCase();
+      return (
+        (userGender === "male" && matchGender === "female") ||
+        (userGender === "female" && matchGender === "male")
+      );
+    });
+
     // For small batches, we can process them in parallel
-    if (potentialMatches.length <= limit) {
-      const analysisPromises = potentialMatches.map(async (match) => {
-        const { score, explanation } = await analyzeCompatibility(user, match);
-        return { match, score, explanation };
+    if (oppositeGenderMatches.length <= limit) {
+      const analysisPromises = oppositeGenderMatches.map(async (match) => {
+        const {
+          score,
+          explanation,
+          compatibilityReasons,
+          sharedValues,
+          topTraits,
+        } = await analyzeCompatibility(user, match);
+        return {
+          match,
+          score,
+          explanation,
+          compatibilityReasons,
+          sharedValues,
+          topTraits,
+        };
       });
 
       const results = await Promise.all(analysisPromises);
@@ -81,14 +119,27 @@ export async function batchAnalyzeCompatibility(
     // For larger batches, first use embeddings to find the most promising matches
     const topCandidates = await findTopCandidatesWithEmbeddings(
       user,
-      potentialMatches,
+      oppositeGenderMatches,
       limit
     );
 
     // Then analyze those candidates in detail
     const analysisPromises = topCandidates.map(async (match) => {
-      const { score, explanation } = await analyzeCompatibility(user, match);
-      return { match, score, explanation };
+      const {
+        score,
+        explanation,
+        compatibilityReasons,
+        sharedValues,
+        topTraits,
+      } = await analyzeCompatibility(user, match);
+      return {
+        match,
+        score,
+        explanation,
+        compatibilityReasons,
+        sharedValues,
+        topTraits,
+      };
     });
 
     const results = await Promise.all(analysisPromises);
@@ -175,18 +226,41 @@ function calculateCosineSimilarity(vec1: number[], vec2: number[]): number {
 
 /**
  * Create a text representation of a user profile for embedding
+ * Updated to handle quiz data
  */
 function createUserProfileText(user: IUser): string {
+  // Extract quiz answers
+  const quizAnswers = user.personalityQuiz?.answers || {};
+
+  // Convert quiz answers to text
+  let quizText = "";
+  Object.entries(quizAnswers).forEach(([key, value]) => {
+    if (key.startsWith("profile_")) {
+      const questionNum = key.split("_")[1];
+      quizText += `Profile Question ${questionNum}: ${value}\n`;
+    } else if (key.startsWith("mbti_")) {
+      const questionNum = key.split("_")[1];
+      quizText += `MBTI Question ${questionNum}: ${value}\n`;
+    } else if (key.startsWith("preferences_")) {
+      const questionNum = key.split("_")[1];
+      quizText += `Preference Question ${questionNum}: ${value}\n`;
+    }
+  });
+
   return `
     Name: ${user.name}
     Age: ${user.age}
     Gender: ${user.gender}
     Orientation: ${user.orientation}
-    Location: ${user.location.city}, ${user.location.country}
+    Location: ${user.location.city || ""}, ${user.location.country || ""}
     Bio: ${user.bio || ""}
     Personality Type: ${user.personalityType || ""}
     Interests: ${user.interests?.join(", ") || ""}
-    Relationship Goals: ${user.relationshipGoals?.join(", ") || ""}
+    Relationship Goals: ${
+      Array.isArray(user.relationshipGoals)
+        ? user.relationshipGoals.join(", ")
+        : user.relationshipGoals || ""
+    }
     Lifestyle: 
       Drinking: ${user.lifestyle?.drinking || ""}
       Smoking: ${user.lifestyle?.smoking || ""}
@@ -194,7 +268,9 @@ function createUserProfileText(user: IUser): string {
       Diet: ${user.lifestyle?.diet || ""}
       Religion: ${user.lifestyle?.religion || ""}
       Politics: ${user.lifestyle?.politics || ""}
-    Deal Breakers: ${user.dealBreakers?.join(", ") || ""}
+      Children: ${user.lifestyle?.children || ""}
+    Personality Quiz Data:
+    ${quizText}
     Preferences:
       Age Range: ${user.preferences.minAge} - ${user.preferences.maxAge}
       Distance: ${user.preferences.distance}
@@ -220,15 +296,18 @@ function createCompatibilityPrompt(user: IUser, potentialMatch: IUser): string {
     3. Relationship goals alignment
     4. Lifestyle compatibility (smoking, drinking, diet, religion, etc.)
     5. Shared interests
-    6. Deal breakers
-    7. Geographic distance
+    6. Geographic distance
+    7. Quiz answers and preferences
     
     Provide a compatibility score from 0-100 and a detailed explanation of why they might be compatible or incompatible.
     
     Return your analysis in the following JSON format:
     {
       "compatibilityScore": number,
-      "explanation": "detailed explanation"
+      "explanation": "detailed explanation",
+      "compatibilityReasons": ["reason1", "reason2"...],
+      "sharedValues": ["value1", "value2"...],
+      "topTraits": ["trait1", "trait2"...]
     }
   `;
 }
@@ -239,7 +318,13 @@ function createCompatibilityPrompt(user: IUser, potentialMatch: IUser): string {
 function fallbackCompatibilityAnalysis(
   user: IUser,
   potentialMatch: IUser
-): { score: number; explanation: string } {
+): {
+  score: number;
+  explanation: string;
+  compatibilityReasons: string[];
+  sharedValues: string[];
+  topTraits: string[];
+} {
   // Import the rule-based algorithm functions
   const {
     calculateCompatibilityScore,
@@ -248,9 +333,20 @@ function fallbackCompatibilityAnalysis(
 
   // Use the rule-based algorithm as fallback
   const score = calculateCompatibilityScore(user, potentialMatch);
-  const explanation = generateMatchExplanation(user, potentialMatch, score);
+  const {
+    explanation,
+    reasons: compatibilityReasons,
+    sharedValues,
+    topTraits,
+  } = generateMatchExplanation(user, potentialMatch, score);
 
-  return { score, explanation };
+  return {
+    score,
+    explanation,
+    compatibilityReasons,
+    sharedValues,
+    topTraits,
+  };
 }
 
 /**
@@ -260,7 +356,14 @@ function fallbackBatchAnalysis(
   user: IUser,
   potentialMatches: IUser[],
   limit: number
-): Array<{ match: IUser; score: number; explanation: string }> {
+): Array<{
+  match: IUser;
+  score: number;
+  explanation: string;
+  compatibilityReasons: string[];
+  sharedValues: string[];
+  topTraits: string[];
+}> {
   // Import the rule-based algorithm function
   const { getTopMatches } = require("./matchingAlgorithm");
 

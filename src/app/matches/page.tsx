@@ -45,6 +45,49 @@ interface Match {
   compatibilityReasons?: string[];
   sharedValues?: string[];
   topTraits?: string[];
+  personalityQuiz?: {
+    answers?: {
+      profile_1?: string;
+      profile_2?: string;
+      profile_3?: string;
+      profile_4?: string;
+      profile_5?: string;
+      profile_6?: string;
+      profile_7?: string;
+      profile_8?: string;
+      profile_9?: string;
+      profile_10?: string;
+      profile_11?: string;
+      profile_12?: string;
+      preferences_1?: string;
+      preferences_2?: string;
+      preferences_3?: string;
+      preferences_4?: string;
+      preferences_5?: string;
+      mbti_1?: string;
+      mbti_2?: string;
+      mbti_3?: string;
+      mbti_4?: string;
+      mbti_5?: string;
+      mbti_6?: string;
+      mbti_7?: string;
+      mbti_8?: string;
+    };
+    completed?: boolean;
+    completedAt?: string;
+    personalityType?: string;
+    traits?: string[];
+  };
+  lifestyle?: {
+    drinking?: string;
+    smoking?: string;
+    exercise?: string;
+    diet?: string;
+    religion?: string;
+    politics?: string;
+    children?: string;
+    pets?: string;
+  };
 }
 
 export default function Matches() {
@@ -218,28 +261,24 @@ export default function Matches() {
     };
 
     const initializeMatches = async () => {
-      // Check for personality quiz data
-      const personalityData = localStorage.getItem("personality_answers");
-      if (!personalityData) {
-        // If no quiz data found, show the quiz on matches page instead of redirecting
-        setHasPersonalityData(false);
-        setShowQuiz(true);
-        setIsLoading(false); // Stop loading state to show quiz
-        return;
-      } else {
-        setHasPersonalityData(true);
-      }
-
       // First try to fetch the user profile directly to check for previous matches
       const hasUserProfileMatch = await fetchUserProfile();
 
-      // For quiz-directed matches, we should always process new matches
-      // even if we already have previous matches
-      const fromQuiz = sessionStorage.getItem("from_quiz") === "true";
-      if (hasUserProfileMatch && !fromQuiz) {
-        // Only skip match loading if we have previous matches AND we're not coming from quiz
+      // If we already found matches from the profile, we're done
+      if (hasUserProfileMatch) {
         return;
       }
+
+      // Check for personality quiz data
+      const personalityData = localStorage.getItem("quizAnswers");
+      if (personalityData) {
+        setHasPersonalityData(true);
+      } else {
+        setHasPersonalityData(false);
+      }
+
+      // For quiz-directed matches, we should always process new matches
+      const fromQuiz = sessionStorage.getItem("from_quiz") === "true";
 
       // Initialize variables we'll use in the function
       let matchLimit = FREE_MATCH_LIMIT;
@@ -319,6 +358,7 @@ export default function Matches() {
 
       // Check if we should show the paywall
       const shouldShowPaywall = await checkSubscription();
+
       if (shouldShowPaywall) {
         setIsLoading(false);
         return;
@@ -338,9 +378,15 @@ export default function Matches() {
         }
 
         const data = await response.json();
+        console.log("match data is: ", data);
 
         if (!data.matches || data.matches.length === 0) {
-          setNoMoreMatches(true);
+          // Only show quiz if we have no matches AND no personality data
+          if (!personalityData) {
+            setShowQuiz(true);
+          } else {
+            setNoMoreMatches(true);
+          }
           setIsLoading(false);
           return;
         }
@@ -349,7 +395,12 @@ export default function Matches() {
         const filteredMatches = data.matches;
 
         if (filteredMatches.length === 0) {
-          setNoMoreMatches(true);
+          // Only show quiz if we have no matches AND no personality data
+          if (!personalityData) {
+            setShowQuiz(true);
+          } else {
+            setNoMoreMatches(true);
+          }
           setIsLoading(false);
           return;
         }
@@ -358,10 +409,11 @@ export default function Matches() {
         filteredMatches.sort(
           (a: Match, b: Match) => b.compatibilityScore - a.compatibilityScore
         );
+        console.log("filtered matches are: ", filteredMatches);
 
         // Get the top match
         const topMatch = filteredMatches[0];
-
+        console.log("top match is: ", topMatch);
         // Update the current match
         setMatches([topMatch]);
 
@@ -386,7 +438,7 @@ export default function Matches() {
                 const updatedUserData = await updatedUserResponse.json();
                 const newMatchesCount =
                   updatedUserData.user?.previousMatches?.length || 0;
-
+                console.log("new matches count is: ", newMatchesCount);
                 // Update total matches viewed count based on database
                 setTotalMatchesViewed(newMatchesCount);
 
@@ -411,6 +463,10 @@ export default function Matches() {
       } catch (error) {
         console.error("Error fetching matches:", error);
         setError("Failed to fetch matches. Please try again.");
+        // Only show quiz if there's an error AND no personality data
+        if (!personalityData) {
+          setShowQuiz(true);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -1572,58 +1628,238 @@ export default function Matches() {
 
                     {/* Display algorithm explanation */}
                     <p className="text-gray-700 text-lg mb-5 font-medium">
-                      {currentMatch.explanation ||
-                        (currentMatch.compatibilityScore > 90
-                          ? "You have exceptional compatibility with this match"
-                          : currentMatch.compatibilityScore > 80
-                          ? "You have great compatibility with this match"
-                          : "You have good compatibility with this match")}
+                      {typeof currentMatch.explanation === "object"
+                        ? (currentMatch.explanation as any).explanation ||
+                          "You have good compatibility with this match"
+                        : currentMatch.explanation ||
+                          (currentMatch.compatibilityScore > 90
+                            ? "You have exceptional compatibility with this match"
+                            : currentMatch.compatibilityScore > 80
+                            ? "You have great compatibility with this match"
+                            : "You have good compatibility with this match")}
                     </p>
 
+                    {/* Display compatibility reasons */}
+                    {typeof currentMatch.explanation === "object" &&
+                    (currentMatch.explanation as any).reasons?.length > 0 ? (
+                      <div className="mb-6">
+                        <h4 className="font-semibold text-purple-800 mb-2">
+                          Why You Match:
+                        </h4>
+                        <ul className="space-y-2">
+                          {(currentMatch.explanation as any).reasons.map(
+                            (reason: string, index: number) => (
+                              <li key={index} className="flex items-start">
+                                <svg
+                                  className="h-5 w-5 text-green-500 mr-2 flex-shrink-0 mt-0.5"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M5 13l4 4L19 7"
+                                  />
+                                </svg>
+                                <span className="text-gray-700">{reason}</span>
+                              </li>
+                            )
+                          )}
+                        </ul>
+                      </div>
+                    ) : (
+                      currentMatch.compatibilityReasons &&
+                      currentMatch.compatibilityReasons.length > 0 && (
+                        <div className="mb-6">
+                          <h4 className="font-semibold text-purple-800 mb-2">
+                            Why You Match:
+                          </h4>
+                          <ul className="space-y-2">
+                            {currentMatch.compatibilityReasons.map(
+                              (reason, index) => (
+                                <li key={index} className="flex items-start">
+                                  <svg
+                                    className="h-5 w-5 text-green-500 mr-2 flex-shrink-0 mt-0.5"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M5 13l4 4L19 7"
+                                    />
+                                  </svg>
+                                  <span className="text-gray-700">
+                                    {reason}
+                                  </span>
+                                </li>
+                              )
+                            )}
+                          </ul>
+                        </div>
+                      )
+                    )}
+
+                    {/* Display shared values */}
+                    {typeof currentMatch.explanation === "object" &&
+                    (currentMatch.explanation as any).sharedValues?.length >
+                      0 ? (
+                      <div className="mb-6">
+                        <h4 className="font-semibold text-purple-800 mb-2">
+                          Shared Values:
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {(currentMatch.explanation as any).sharedValues.map(
+                            (value: string, index: number) => (
+                              <span
+                                key={index}
+                                className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm"
+                              >
+                                {value}
+                              </span>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      currentMatch.sharedValues &&
+                      currentMatch.sharedValues.length > 0 && (
+                        <div className="mb-6">
+                          <h4 className="font-semibold text-purple-800 mb-2">
+                            Shared Values:
+                          </h4>
+                          <div className="flex flex-wrap gap-2">
+                            {currentMatch.sharedValues.map((value, index) => (
+                              <span
+                                key={index}
+                                className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm"
+                              >
+                                {value}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    )}
+
+                    {/* Display top traits */}
                     <div className="space-y-3 mb-6">
-                      <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
-                        <p className="text-gray-700">
-                          Their {currentMatch.personalityType || "unique"}{" "}
-                          personality type suggests they are{" "}
-                          {currentMatch.topTraits
-                            ?.slice(0, 3)
-                            .join(", ")
-                            .toLowerCase()}
-                        </p>
-                      </div>
+                      {typeof currentMatch.explanation === "object" &&
+                      (currentMatch.explanation as any).topTraits?.length >
+                        0 ? (
+                        (currentMatch.explanation as any).topTraits.map(
+                          (trait: string, index: number) => (
+                            <div
+                              key={index}
+                              className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow"
+                            >
+                              <p className="text-gray-700 capitalize">
+                                {trait === "extroverted"
+                                  ? "They are social and energetic, gaining energy from being around others"
+                                  : trait === "introspective"
+                                  ? "They are thoughtful and reflective, valuing deep personal connections"
+                                  : trait === "practical"
+                                  ? "They approach situations with a practical mindset and value real-world results"
+                                  : trait === "creative"
+                                  ? "They have a creative mind and enjoy exploring new possibilities"
+                                  : trait === "independent"
+                                  ? "They value personal space and independence in relationships"
+                                  : trait === "sociable"
+                                  ? "They enjoy social gatherings and connecting with others"
+                                  : trait === "patient"
+                                  ? "They believe relationships develop over time through shared experiences"
+                                  : trait === "romantic"
+                                  ? "They have a romantic outlook on relationships and connections"
+                                  : trait === "grounded"
+                                  ? "They are down-to-earth and focus on tangible realities"
+                                  : `They are ${trait.toLowerCase()}`}
+                              </p>
+                            </div>
+                          )
+                        )
+                      ) : currentMatch.topTraits &&
+                        currentMatch.topTraits.length > 0 ? (
+                        currentMatch.topTraits.map((trait, index) => (
+                          <div
+                            key={index}
+                            className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow"
+                          >
+                            <p className="text-gray-700 capitalize">
+                              {trait === "extroverted"
+                                ? "They are social and energetic, gaining energy from being around others"
+                                : trait === "introspective"
+                                ? "They are thoughtful and reflective, valuing deep personal connections"
+                                : trait === "practical"
+                                ? "They approach situations with a practical mindset and value real-world results"
+                                : trait === "creative"
+                                ? "They have a creative mind and enjoy exploring new possibilities"
+                                : trait === "independent"
+                                ? "They value personal space and independence in relationships"
+                                : trait === "sociable"
+                                ? "They enjoy social gatherings and connecting with others"
+                                : trait === "patient"
+                                ? "They believe relationships develop over time through shared experiences"
+                                : trait === "romantic"
+                                ? "They have a romantic outlook on relationships and connections"
+                                : trait === "grounded"
+                                ? "They are down-to-earth and focus on tangible realities"
+                                : `They are ${trait.toLowerCase()}`}
+                            </p>
+                          </div>
+                        ))
+                      ) : (
+                        <>
+                          <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
+                            <p className="text-gray-700">
+                              Their {currentMatch.personalityType || "unique"}{" "}
+                              personality type suggests they are{" "}
+                              {extractPersonalityTraits(
+                                currentMatch.personalityType
+                              )
+                                ?.slice(0, 3)
+                                .join(", ")
+                                .toLowerCase()}
+                            </p>
+                          </div>
 
-                      <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
-                        <p className="text-gray-700">
-                          They tend to focus on{" "}
-                          {currentMatch.personalityType?.includes("N")
-                            ? "ideas, possibilities, and the future"
-                            : "practical matters, details, and the present"}
-                        </p>
-                      </div>
+                          <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
+                            <p className="text-gray-700">
+                              They tend to focus on{" "}
+                              {currentMatch.personalityType?.includes("N")
+                                ? "ideas, possibilities, and the future"
+                                : "practical matters, details, and the present"}
+                            </p>
+                          </div>
 
-                      <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
-                        <p className="text-gray-700">
-                          They approach decisions with{" "}
-                          {currentMatch.personalityType?.includes("T")
-                            ? "logical analysis and objective reasoning"
-                            : currentMatch.personalityType?.includes("F")
-                            ? "empathy and consideration for how others will be affected"
-                            : "a balance of logic and emotional awareness"}
-                        </p>
-                      </div>
+                          <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
+                            <p className="text-gray-700">
+                              They approach decisions with{" "}
+                              {currentMatch.personalityType?.includes("T")
+                                ? "logical analysis and objective reasoning"
+                                : currentMatch.personalityType?.includes("F")
+                                ? "empathy and consideration for how others will be affected"
+                                : "a balance of logic and emotional awareness"}
+                            </p>
+                          </div>
 
-                      <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
-                        <p className="text-gray-700">
-                          Their{" "}
-                          {currentMatch.personalityType?.includes("E")
-                            ? "extroverted"
-                            : "introverted"}{" "}
-                          nature means they{" "}
-                          {currentMatch.personalityType?.includes("E")
-                            ? "gain energy from social interactions and engagement with others"
-                            : "recharge through quiet reflection and alone time"}
-                        </p>
-                      </div>
+                          <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
+                            <p className="text-gray-700">
+                              Their{" "}
+                              {currentMatch.personalityType?.includes("E")
+                                ? "extroverted"
+                                : "introverted"}{" "}
+                              nature means they{" "}
+                              {currentMatch.personalityType?.includes("E")
+                                ? "gain energy from social interactions and engagement with others"
+                                : "recharge through quiet reflection and alone time"}
+                            </p>
+                          </div>
+                        </>
+                      )}
                     </div>
 
                     <div className="bg-white p-4 rounded-lg shadow-sm border border-purple-100 mb-5">
@@ -1887,16 +2123,35 @@ export default function Matches() {
                           {interest}
                         </span>
                       ))}
-                    {(currentMatch.interests || []).length === 0 && (
-                      <>
-                        <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm">
-                          Travel
-                        </span>
-                        <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm">
-                          Music
-                        </span>
-                      </>
-                    )}
+                    {/* If we have quiz interests but no profile interests */}
+                    {(currentMatch.interests || []).length === 0 &&
+                      currentMatch.personalityQuiz?.answers?.profile_12 && (
+                        <>
+                          {currentMatch.personalityQuiz.answers.profile_12
+                            .split(",")
+                            .slice(0, 4)
+                            .map((interest, index) => (
+                              <span
+                                key={index}
+                                className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm"
+                              >
+                                {interest.trim()}
+                              </span>
+                            ))}
+                        </>
+                      )}
+                    {/* Fallback if no interests found */}
+                    {(currentMatch.interests || []).length === 0 &&
+                      !currentMatch.personalityQuiz?.answers?.profile_12 && (
+                        <>
+                          <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm">
+                            Travel
+                          </span>
+                          <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm">
+                            Music
+                          </span>
+                        </>
+                      )}
                   </div>
                   <p className="text-gray-500 text-sm">
                     Common interests based on profile

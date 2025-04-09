@@ -145,7 +145,7 @@ export const authOptions: NextAuthOptions = {
               email,
               profileImage: user.image || profileData?.picture,
               // Set default values for required fields
-              age: 18, // Default age
+              age: 0, // Default age
               gender: "Not specified", // Default gender - user will set this in profile
               orientation: "Not specified",
               location: {

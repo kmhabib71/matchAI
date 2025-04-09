@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import confetti from "canvas-confetti";
+import Link from "next/link";
+import axios from "axios";
+import districtData from "../../data/district.json";
 
 interface PersonalityQuizProps {
   isOpen: boolean;
@@ -34,11 +37,11 @@ export default function PersonalityQuiz({
   const [answers, setAnswers] = useState<{
     profile: Record<number, string | string[]>;
     preferences: Record<number, string | string[]>;
-    mbti: Record<number, string>;
+    personality: Record<number, string>;
   }>({
     profile: {},
     preferences: {},
-    mbti: {},
+    personality: {},
   });
   const [quizStarted, setQuizStarted] = useState(false);
   const [quizCompleted, setQuizCompleted] = useState(false);
@@ -51,9 +54,16 @@ export default function PersonalityQuiz({
   >("happy");
   const [points, setPoints] = useState(0);
   const [quizSection, setQuizSection] = useState<
-    "profile" | "mbti" | "preferences"
+    "profile" | "personality" | "preferences"
   >("profile");
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
+
+  // Extract districts from the JSON data
+  const districts =
+    districtData[2]?.data?.map((district) => ({
+      name: district.name,
+      bn_name: district.bn_name,
+    })) || [];
 
   // The Bengali questions from note.text
   const profileQuestions = [
@@ -80,26 +90,15 @@ export default function PersonalityQuiz({
     {
       id: 5,
       question: "বর্তমানে আপনি কোন পেশায় রয়েছেন?",
-      options: ["ছাত্র", "চাকুরিজীবী", "ব্যবসায়ী", "ফ্রিল্যান্সার", "বেকার"],
-      type: "card-select",
-      description: "জীবনধারা ও আগ্রহের সামঞ্জস্য নিশ্চিত করুন।",
-    },
-    {
-      id: 6,
-      question: "আপনার মাসিক আয় কত?",
       options: [
-        "৳০–৫,০০০",
-        "৳৫,০০১–১৫,০০০",
-        "৳১৫,০০১–৩০,০০০",
-        "৳৩০,০০১–৫০,০০০",
-        "৳৫০,০০০+",
+        "ছাত্র/ছাত্রী",
+        "চাকুরিজীবী",
+        "ব্যবসায়ী",
+        "ফ্রিল্যান্সার",
+        "বেকার",
       ],
       type: "card-select",
-      description: "অর্থনৈতিক সামঞ্জস্য নির্ধারণে সহায়ক।",
-      condition: {
-        field: "profession",
-        showIf: ["চাকুরিজীবী", "ব্যবসায়ী", "ফ্রিল্যান্সার", "বেকার"],
-      },
+      description: "জীবনধারা ও আগ্রহের সামঞ্জস্য নিশ্চিত করুন।",
     },
     {
       id: 7,
@@ -135,28 +134,6 @@ export default function PersonalityQuiz({
       options: ["অবিবাহিত", "বিবাহবিচ্ছিন্ন", "বিধবা/বিপত্নীক"],
       type: "radio",
       description: "সম্পর্কের বর্তমান অবস্থা বুঝতে প্রয়োজন।",
-    },
-    {
-      id: 10,
-      question: "আপনার কি সন্তান রয়েছে?",
-      options: ["হ্যাঁ", "না", "ভবিষ্যতে ভাবছি"],
-      type: "radio",
-      description: "পরিবার পরিকল্পনা সম্পর্কে ধারণা পেতে।",
-      condition: {
-        field: "marital_status",
-        showIf: ["অবিবাহিত", "বিধবা/বিপত্নীক"],
-      },
-    },
-    {
-      id: 11,
-      question: "আপনি ধূমপান করেন?",
-      options: ["হ্যাঁ", "না", "মাঝেমধ্যে"],
-      type: "radio",
-      description: "জীবনধারার সামঞ্জস্য বোঝার জন্য।",
-      condition: {
-        field: "gender",
-        showIf: ["পুরুষ"],
-      },
     },
     {
       id: 12,
@@ -202,23 +179,15 @@ export default function PersonalityQuiz({
     {
       id: 2,
       question: "কোন ধরনের পেশার মানুষ পছন্দ করেন?",
-      options: ["ছাত্র", "চাকুরিজীবী", "ব্যবসায়ী", "ফ্রিল্যান্সার", "বেকার"],
+      options: [
+        "ছাত্র/ছাত্রী",
+        "চাকুরিজীবী",
+        "ব্যবসায়ী",
+        "ফ্রিল্যান্সার",
+        "বেকার",
+      ],
       type: "multi-select",
       description: "জীবনধারা ও আগ্রহের সামঞ্জস্য নিশ্চিত করুন।",
-    },
-    {
-      id: 3,
-      question: "সঙ্গীর মাসিক আয় সম্পর্কে আপনার প্রত্যাশা কী?",
-      options: [
-        "ঐচ্ছিক",
-        "৳০–৫,০০০",
-        "৳৫,০০১–১৫,০০০",
-        "৳১৫,০০১–৩০,০০০",
-        "৳৩০,০০১–৫০,০০০",
-        "৳৫০,০০০+",
-      ],
-      type: "dropdown",
-      description: "অর্থনৈতিক সামঞ্জস্য সম্পর্কে ধারণা দিন।",
     },
     {
       id: 4,
@@ -243,98 +212,179 @@ export default function PersonalityQuiz({
     },
   ];
 
-  const mbtiFriendlyQuestions = [
-    // I vs E
+  const personalityQuestions = [
+    // Big Five personality traits (5 questions)
     {
       id: 1,
-      question: "আপনি নিজেকে কিভাবে বর্ণনা করবেন?",
-      options: ["লাজুক ও চুপচাপ", "মিশুক ও প্রাণবন্ত", "দুটোই একটু একটু"],
-      type: "radio",
-      description: "আপনার সামাজিক আচরণ ও শক্তি পুনরুদ্ধারের ধরন বোঝাতে সহায়ক।",
-    },
-    {
-      id: 2,
-      question: "আপনার ছুটির দিন কিভাবে কাটাতে পছন্দ করেন?",
+      question: "আমি কি নতুন রেসিপি ট্রাই করতে মজা পাই?",
       options: [
-        "ভ্রমণ",
-        "বন্ধুদের সাথে আড্ডা",
-        "বাসায় বিশ্রাম",
-        "ব্যায়াম",
-        "সিনেমা দেখা",
-      ],
-      type: "radio",
-      description: "আপনার আনন্দ নেওয়ার ধরন ও সামাজিক পছন্দ প্রকাশ করে।",
-    },
-    // S vs N
-    {
-      id: 3,
-      question:
-        "আপনি কি ভালোবাসার প্রথম দর্শনে বিশ্বাস করেন নাকি সময়ের সাথে তৈরি হয়?",
-      options: [
-        "প্রথম দর্শনেই ভালোবাসা হয়",
-        "সময়ের সাথে ভালোবাসা গড়ে ওঠে",
-        "নিশ্চিত নই",
-      ],
-      type: "radio",
-      description: "বাস্তবতা বনাম ধারণাশক্তির উপর নির্ভর করে সম্পর্কের ধারণা।",
-    },
-    {
-      id: 4,
-      question: "আপনার কাছে পারফেক্ট ডেট কেমন?",
-      options: [
-        "রোমান্টিক ডিনার",
-        "অ্যাডভেঞ্চার ভ্রমণ",
-        "একসাথে সিনেমা দেখা",
-        "একসাথে রান্না করা",
-      ],
-      type: "radio",
-      description: "আপনার কল্পনা ও বাস্তব অভিজ্ঞতার প্রতি ঝোঁক প্রকাশ করে।",
-    },
-    // T vs F
-    {
-      id: 5,
-      question: "সম্পর্কে আপনি বেশি আবেগী নাকি বাস্তববাদী?",
-      options: ["বেশি আবেগী", "বেশি বাস্তববাদী", "দুটোর মিশ্রণ"],
-      type: "radio",
-      description: "আপনার সিদ্ধান্ত গ্রহণের ধরন ও আবেগের গুরুত্ব বোঝায়।",
-    },
-    {
-      id: 6,
-      question: "আপনি ঝগড়া কিভাবে সামলান?",
-      options: [
-        "আলোচনা করি",
-        "কিছু সময় একা থাকি",
-        "চুপচাপ থাকি",
-        "এড়িয়ে চলি",
+        "১: একদম না 😒",
+        "২: না 🙄",
+        "৩: মাঝামাঝি 😐",
+        "৪: হ্যাঁ 😊",
+        "৫: খুবই হ্যাঁ 😃",
       ],
       type: "radio",
       description:
-        "সংঘর্ষ মোকাবিলায় যুক্তি বনাম আবেগের ভূমিকা নির্ধারণে সহায়ক।",
+        "Openness (O): আপনার নিজের ব্যক্তিত্ব বুঝতে এটি গুরুত্বপূর্ণ। নতুন জিনিস চেষ্টা করার প্রবণতা জানায় আপনি কতটা উন্মুক্ত মনের মানুষ।",
     },
-    // J vs P
     {
-      id: 7,
-      question: "আপনি সকালবেলা মানুষ নাকি রাতজাগা?",
+      id: 2,
+      question: "আমি কি ডেস্ক অগোছালো হলে ঘাবড়ে যাই?",
       options: [
-        "সকালে উঠতে পছন্দ করি",
-        "রাতে জেগে থাকতে পছন্দ করি",
-        "যখন যেমন",
+        "১: একদম না 🙂",
+        "২: না 😌",
+        "৩: মাঝামাঝি 😐",
+        "৪: হ্যাঁ 😟",
+        "৫: খুবই হ্যাঁ 😣",
       ],
       type: "radio",
-      description: "আপনার রুটিন ও সময় ব্যবস্থাপনার ধরন প্রকাশ করে।",
+      description:
+        "Conscientiousness (C): আপনার নিজের সংগঠিত মনোভাব বোঝাতে সাহায্য করে। সঠিক ম্যাচ খুঁজতে সত্যি উত্তর দিন।",
+    },
+    {
+      id: 3,
+      question: "আমি কি পার্টিতে হইচই করতে ভালোবাসি?",
+      options: [
+        "১: একদম না 😔",
+        "২: না 🙂",
+        "৩: মাঝামাঝি 😐",
+        "৪: হ্যাঁ 😄",
+        "৫: খুবই হ্যাঁ 🥳",
+      ],
+      type: "radio",
+      description:
+        "Extraversion (E): আপনার সামাজিক আচরণের ধরন বোঝায়। আপনার আসল ব্যক্তিত্ব তুলে ধরুন, ভবিষ্যত সম্পর্কের সুখের জন্য।",
+    },
+    {
+      id: 4,
+      question: "আমি কি বন্ধু দেরি করলেও শান্ত থাকি?",
+      options: [
+        "১: একদম না 😠",
+        "২: না 😒",
+        "৩: মাঝামাঝি 😐",
+        "৪: হ্যাঁ 🙂",
+        "৫: খুবই হ্যাঁ 😌",
+      ],
+      type: "radio",
+      description:
+        "Agreeableness (A): আপনার সহনশীলতা ও মানিয়ে নেওয়ার ক্ষমতা। মনে রাখবেন, এই উত্তরের উপর ভিত্তি করে আপনার ম্যাচ নির্বাচিত হবে।",
+    },
+    {
+      id: 5,
+      question: "আমি কি কফি পড়ে গেলে দিন শেষ মনে করি?",
+      options: [
+        "১: একদম না 😎",
+        "২: না 🙂",
+        "৩: মাঝামাঝি 😐",
+        "৪: হ্যাঁ 😫",
+        "৫: খুবই হ্যাঁ 😩",
+      ],
+      type: "radio",
+      description:
+        "Neuroticism (N): আপনার মানসিক চাপ সামলানোর ক্ষমতা। আপনার প্রকৃত প্রতিক্রিয়া জানানো গুরুত্বপূর্ণ, আদর্শ উত্তর নয়।",
+    },
+
+    // Attachment Style (3 Questions)
+    {
+      id: 6,
+      question: "সঙ্গী রিপ্লাই দিতে দেরি করলে আমি কি টেনশন করি?",
+      options: [
+        "১: একদম না 😌",
+        "২: না 🙂",
+        "৩: মাঝামাঝি 😐",
+        "৪: হ্যাঁ 😟",
+        "৫: খুবই হ্যাঁ 😰",
+      ],
+      type: "radio",
+      description:
+        "আপনার আসক্তির ধরন বুঝতে সাহায্য করে। সম্পর্কে আপনার আসল আচরণ তুলে ধরুন, আদর্শ আচরণ নয়।",
+    },
+    {
+      id: 7,
+      question: "সঙ্গী একটু দূরে থাকলে আমি কি শান্ত থাকি?",
+      options: [
+        "১: একদম না 😣",
+        "২: না 😔",
+        "৩: মাঝামাঝি 😐",
+        "৪: হ্যাঁ 🙂",
+        "৫: খুবই হ্যাঁ 😌",
+      ],
+      type: "radio",
+      description:
+        "সম্পর্কে স্বাধীনতা ও নিরাপত্তার অনুভূতি। আপনার সাথে মানানসই সঙ্গী খুঁজতে সত্যি উত্তর দিন।",
     },
     {
       id: 8,
-      question: "আপনি কিভাবে ভালোবাসা প্রকাশ করেন?",
+      question: "গভীর কথা হলে আমি কি পালাতে চাই?",
       options: [
-        "মিষ্টি কথা বলা",
-        "একসাথে সময় কাটানো",
-        "সাহায্য করা",
-        "হাত ধরা ও আলিঙ্গন",
-        "উপহার দেওয়া",
+        "১: একদম না 🤗",
+        "২: না 😊",
+        "৩: মাঝামাঝি 😐",
+        "৪: হ্যাঁ 😓",
+        "৫: খুবই হ্যাঁ 😅",
       ],
       type: "radio",
-      description: "আপনার ব্যক্তিগত পছন্দ ও সম্পর্কের অগ্রাধিকার দেখায়।",
+      description:
+        "আবেগ প্রকাশে আপনার স্বাচ্ছন্দ্য। আমরা এখানে আপনার আসল ব্যক্তিত্ব বুঝতে চাই যাতে উপযুক্ত ম্যাচ খুঁজে দিতে পারি।",
+    },
+
+    // Values and Life Goals (4 Questions)
+    {
+      id: 9,
+      question: "আমি কি বাচ্চার জন্য পাগল হয়ে যাই?",
+      options: [
+        "১: একদম না 😒",
+        "২: না 🙂",
+        "৩: মাঝামাঝি 😐",
+        "৪: হ্যাঁ 😊",
+        "৫: খুবই হ্যাঁ 🥰",
+      ],
+      type: "radio",
+      description:
+        "আপনার জীবনের লক্ষ্য ও পরিবারের প্রতি আগ্রহ। মনে রাখবেন, এটি আপনার যোগ্য সঙ্গী খোঁজার একটি গুরুত্বপূর্ণ মাপকাঠি।",
+    },
+    {
+      id: 10,
+      question: "কাজ ছাড়া আমি কি অস্থির হয়ে পড়ি?",
+      options: [
+        "১: একদম না 😌",
+        "২: না 🙂",
+        "৩: মাঝামাঝি 😐",
+        "৪: হ্যাঁ 😟",
+        "৫: খুবই হ্যাঁ 😣",
+      ],
+      type: "radio",
+      description:
+        "আপনার কর্মজীবনের প্রতি মনোযোগ ও আগ্রহ। আপনার সত্যিকারের মনোভাব তুলে ধরুন, এটি ভবিষ্যত সম্পর্কের সাফল্যে সাহায্য করবে।",
+    },
+    {
+      id: 11,
+      question: "আমি কি ঘুরতে না গেলে মন খারাপ করি?",
+      options: [
+        "১: একদম না 😌",
+        "২: না 🙂",
+        "৩: মাঝামাঝি 😐",
+        "৪: হ্যাঁ 😊",
+        "৫: খুবই হ্যাঁ 😃",
+      ],
+      type: "radio",
+      description:
+        "আপনার অভিজ্ঞতা সংগ্রহ ও নতুন জায়গা দেখার আগ্রহ। আপনার আসল পছন্দ জানান, এর উপর ভিত্তি করে আপনার ম্যাচিং করা হবে।",
+    },
+    {
+      id: 12,
+      question: "আমি কি টাকা জমাতে না পারলে ঘুম হারাম হয়?",
+      options: [
+        "১: একদম না 😌",
+        "২: না 🙂",
+        "৩: মাঝামাঝি 😐",
+        "৪: হ্যাঁ 😟",
+        "৫: খুবই হ্যাঁ 😖",
+      ],
+      type: "radio",
+      description:
+        "আপনার অর্থনৈতিক স্থিতিশীলতার প্রতি আগ্রহ। আপনার নিজের অনুভূতি প্রকাশ করুন, সঠিক ম্যাচিং-এর জন্য।",
     },
   ];
 
@@ -382,7 +432,7 @@ export default function PersonalityQuiz({
         ? profileQuestions
         : quizSection === "preferences"
         ? preferenceQuestions
-        : mbtiFriendlyQuestions;
+        : personalityQuestions;
 
     return questions.filter(shouldShowQuestion);
   }, [quizSection, shouldShowQuestion]);
@@ -422,7 +472,7 @@ export default function PersonalityQuiz({
     setAnswers({
       profile: {},
       preferences: {},
-      mbti: {},
+      personality: {},
     });
     // Clear localStorage
     localStorage.removeItem("quizAnswers");
@@ -449,13 +499,13 @@ export default function PersonalityQuiz({
       // Save current state to localStorage before transitioning
       localStorage.setItem("quizAnswers", JSON.stringify(answers));
 
-      // Move to MBTI section
-      setQuizSection("mbti");
+      // Move to personality section
+      setQuizSection("personality");
       triggerCelebration();
       setPoints((prev) => prev + 50);
       setCharacterMood("excited");
       setTimeout(() => setCharacterMood("happy"), 1000);
-    } else if (quizSection === "mbti") {
+    } else if (quizSection === "personality") {
       // Save current state to localStorage before transitioning
       localStorage.setItem("quizAnswers", JSON.stringify(answers));
 
@@ -533,66 +583,57 @@ export default function PersonalityQuiz({
   const determinePersonalityType = (
     answers: Record<string, string | string[]>
   ): string => {
-    // Simple algorithm to determine MBTI type from answers
-    const types = {
-      E: 0,
-      I: 0, // Extraversion vs Introversion
-      S: 0,
-      N: 0, // Sensing vs Intuition
-      T: 0,
-      F: 0, // Thinking vs Feeling
-      J: 0,
-      P: 0, // Judging vs Perceiving
+    // Extract values without the numeric prefix and emoji
+    const extractValue = (answer: string): string => {
+      const match = answer.match(
+        /\d+:\s*(.+?)\s*(?:😒|😐|😊|🙂|🙄|😃|😌|😣|🤗|😟|😫|😠|😄|🥳|😎|😩|😰|😔|😓|😅|🥰|😖|$)/
+      );
+      return match ? match[1].trim() : answer;
     };
 
-    // Map specific question answers to MBTI dimensions
-    if (answers[`mbti_1`] === "লাজুক ও চুপচাপ") types.I += 2;
-    else if (answers[`mbti_1`] === "মিশুক ও প্রাণবন্ত") types.E += 2;
-    else if (answers[`mbti_1`] === "দুটোই একটু একটু") {
-      types.I++;
-      types.E++;
+    // For Big Five traits, process answers 1-5
+    let openness = 0,
+      conscientiousness = 0,
+      extraversion = 0,
+      agreeableness = 0,
+      neuroticism = 0;
+
+    if (answers[`1`]) {
+      const value = extractValue(answers[`1`] as string);
+      openness = parseInt(value.charAt(0)) || 3;
     }
 
-    if (answers[`mbti_2`] === "বাসায় বিশ্রাম") types.I++;
-    else if (answers[`mbti_2`] === "বন্ধুদের সাথে আড্ডা") types.E++;
-
-    if (answers[`mbti_3`] === "প্রথম দর্শনেই ভালোবাসা হয়") types.N++;
-    else if (answers[`mbti_3`] === "সময়ের সাথে ভালোবাসা গড়ে ওঠে") types.S++;
-
-    if (answers[`mbti_4`] === "অ্যাডভেঞ্চার ভ্রমণ") types.N++;
-    else if (
-      answers[`mbti_4`] === "রোমান্টিক ডিনার" ||
-      answers[`mbti_4`] === "একসাথে রান্না করা"
-    )
-      types.S++;
-
-    if (answers[`mbti_5`] === "বেশি আবেগী") types.F += 2;
-    else if (answers[`mbti_5`] === "বেশি বাস্তববাদী") types.T += 2;
-    else if (answers[`mbti_5`] === "দুটোর মিশ্রণ") {
-      types.F++;
-      types.T++;
+    if (answers[`2`]) {
+      const value = extractValue(answers[`2`] as string);
+      conscientiousness = parseInt(value.charAt(0)) || 3;
     }
 
-    if (answers[`mbti_6`] === "আলোচনা করি") types.T++;
-    else if (
-      answers[`mbti_6`] === "কিছু সময় একা থাকি" ||
-      answers[`mbti_6`] === "চুপচাপ থাকি"
-    )
-      types.F++;
-
-    if (answers[`mbti_7`] === "সকালে উঠতে পছন্দ করি") types.J++;
-    else if (answers[`mbti_7`] === "রাতে জেগে থাকতে পছন্দ করি") types.P++;
-    else if (answers[`mbti_7`] === "যখন যেমন") {
-      types.J += 0.5;
-      types.P += 0.5;
+    if (answers[`3`]) {
+      const value = extractValue(answers[`3`] as string);
+      extraversion = parseInt(value.charAt(0)) || 3;
     }
 
-    if (
-      answers[`mbti_8`] === "উপহার দেওয়া" ||
-      answers[`mbti_8`] === "হাত ধরা ও আলিঙ্গন"
-    )
-      types.F++;
-    else if (answers[`mbti_8`] === "সাহায্য করা") types.T++;
+    if (answers[`4`]) {
+      const value = extractValue(answers[`4`] as string);
+      agreeableness = parseInt(value.charAt(0)) || 3;
+    }
+
+    if (answers[`5`]) {
+      const value = extractValue(answers[`5`] as string);
+      neuroticism = parseInt(value.charAt(0)) || 3;
+    }
+
+    // Simple algorithm to convert Big Five to MBTI-like format for backward compatibility
+    const types = {
+      E: extraversion > 3 ? extraversion - 2 : 0,
+      I: extraversion <= 3 ? 5 - extraversion : 0,
+      S: openness <= 3 ? 5 - openness : 0,
+      N: openness > 3 ? openness - 2 : 0,
+      T: agreeableness <= 3 ? 5 - agreeableness : 0,
+      F: agreeableness > 3 ? agreeableness - 2 : 0,
+      J: conscientiousness > 3 ? conscientiousness - 2 : 0,
+      P: conscientiousness <= 3 ? 5 - conscientiousness : 0,
+    };
 
     // Determine each dimension by comparing scores
     const mbti = [
@@ -613,6 +654,7 @@ export default function PersonalityQuiz({
     অন্যান্য: "Other",
 
     ছাত্র: "Student",
+    "ছাত্র/ছাত্রী": "Student",
     চাকুরিজীবী: "Employee",
     ব্যবসায়ী: "Business Owner",
     ফ্রিল্যান্সার: "Freelancer",
@@ -689,21 +731,54 @@ export default function PersonalityQuiz({
     "উপহার দেওয়া": "Giving gifts",
 
     // Preference questions
-    "১৮–২২": "18-22",
-    "২৩–২৭": "23-27",
-    "২৮–৩২": "28-32",
-    "৩৩–৩৭": "33-37",
+    "১৮–২৩": "18-23",
+    "২৩–২৮": "23-28",
+    "২৮–৩৩": "28-33",
+    "৩৩–৩৮": "33-38",
     "৩৮–৪৫": "38-45",
     "৪৫+": "45+",
+    "যে কোনো বয়সী": "Any age",
 
-    ঐচ্ছিক: "Optional",
+    "প্রয়োজন নেই": "Optional",
     "৳০–৫,০০০": "BDT 0-5,000",
     "৳৫,০০১–১৫,০০০": "BDT 5,001-15,000",
     "৳১৫,০০১–৩০,০০০": "BDT 15,001-30,000",
     "৳৩০,০০১–৫০,০০০": "BDT 30,001-50,000",
     "৳৫০,০০০+": "BDT 50,000+",
 
+    "যে কোনো শহরে": "Any city",
+
     "মনে নেই": "Don't care",
+    "১: একদম না 😒": "1: Strongly disagree",
+    "২: না 🙄": "2: Disagree",
+    "৩: মাঝামাঝি 😐": "3: Neutral",
+    "৪: হ্যাঁ 😊": "4: Agree",
+    "৫: খুবই হ্যাঁ 😃": "5: Strongly agree",
+    "১: একদম না 🙂": "1: Strongly disagree",
+    "২: না 😌": "2: Disagree",
+    "১: একদম না 😌": "1: Strongly disagree",
+    "৪: হ্যাঁ 😟": "4: Agree",
+    "৫: খুবই হ্যাঁ 😣": "5: Strongly agree",
+    "১: একদম না 😔": "1: Strongly disagree",
+    "২: না 🙂": "2: Disagree",
+    "৪: হ্যাঁ 😄": "4: Agree",
+    "৫: খুবই হ্যাঁ 🥳": "5: Strongly agree",
+    "১: একদম না 😠": "1: Strongly disagree",
+    "২: না 😒": "2: Disagree",
+    "৪: হ্যাঁ 🙂": "4: Agree",
+    "৫: খুবই হ্যাঁ 😌": "5: Strongly agree",
+    "১: একদম না 😎": "1: Strongly disagree",
+    "৪: হ্যাঁ 😫": "4: Agree",
+    "৫: খুবই হ্যাঁ 😩": "5: Strongly agree",
+    "৫: খুবই হ্যাঁ 😰": "5: Strongly agree",
+    "১: একদম না 😣": "1: Strongly disagree",
+    "২: না 😔": "2: Disagree",
+    "১: একদম না 🤗": "1: Strongly disagree",
+    "২: না 😊": "2: Disagree",
+    "৪: হ্যাঁ 😓": "4: Agree",
+    "৫: খুবই হ্যাঁ 😅": "5: Strongly agree",
+    "৫: খুবই হ্যাঁ 🥰": "5: Strongly agree",
+    "৫: খুবই হ্যাঁ 😖": "5: Strongly agree",
   };
 
   // Function to translate Bengali answers to English
@@ -731,6 +806,20 @@ export default function PersonalityQuiz({
     return translatedAnswers;
   };
 
+  // Process all answers and update to English format
+  const processAndCleanAnswer = (answer: string): string => {
+    // Clean numberical values with emoji to return just the English value
+    const valueMatch = answer.match(
+      /^\d+:\s(.+?)(?:\s[😒😐😊🙂🙄😃😌😣🤗😟😫😠😄🥳😎😩😰😔😓😅🥰😖])?$/
+    );
+    if (valueMatch) {
+      return valueMatch[1].toLowerCase();
+    }
+
+    // Translate if it's in Bengali
+    return (bengaliToEnglishMap[answer] || answer).toLowerCase();
+  };
+
   const submitQuiz = async () => {
     try {
       setIsSubmitting(true);
@@ -746,7 +835,7 @@ export default function PersonalityQuiz({
         profileCompleted: true, // Mark profile as completed
         // Initialize preferences object
         preferences: {
-          minAge: 18,
+          minAge: 0,
           maxAge: 50,
           distance: 50,
           dealBreakers: [],
@@ -767,12 +856,12 @@ export default function PersonalityQuiz({
       if (answers.profile[11]) {
         // Smoking question
         submissionData.lifestyle = {
-          smoking:
-            bengaliToEnglishMap[answers.profile[11] as string] ||
-            answers.profile[11],
+          smoking: processAndCleanAnswer(answers.profile[11] as string),
           drinking: "No", // Default values
           diet: "Any",
-          religion: bengaliToEnglishMap[answers.profile[8] as string] || "Any",
+          religion: processAndCleanAnswer(
+            (answers.profile[8] as string) || "Any"
+          ),
         };
       }
 
@@ -783,9 +872,9 @@ export default function PersonalityQuiz({
 
       // Set the gender directly
       if (answers.profile[2]) {
-        submissionData.gender =
-          bengaliToEnglishMap[answers.profile[2] as string] ||
-          answers.profile[2];
+        submissionData.gender = processAndCleanAnswer(
+          answers.profile[2] as string
+        );
       }
 
       // Set the age directly (birth year -> age conversion)
@@ -829,14 +918,13 @@ export default function PersonalityQuiz({
         if (Array.isArray(value)) {
           // Join multi-select options with commas and translate
           const translatedValue = value
-            .map((item) => bengaliToEnglishMap[item] || item)
+            .map((item) => processAndCleanAnswer(item))
             .join(", ");
           // Add to quiz answers
           quizAnswers[prefixedKey] = translatedValue;
         } else {
-          // Translate single value if it exists in the map
-          const translatedValue =
-            bengaliToEnglishMap[value as string] || (value as string);
+          // Translate and clean single value
+          const translatedValue = processAndCleanAnswer(value as string);
           // Add to quiz answers
           quizAnswers[prefixedKey] = translatedValue;
         }
@@ -849,41 +937,40 @@ export default function PersonalityQuiz({
         if (Array.isArray(value)) {
           // Join multi-select options with commas and translate
           const translatedValue = value
-            .map((item) => bengaliToEnglishMap[item] || item)
+            .map((item) => processAndCleanAnswer(item))
             .join(", ");
           // Add to quiz answers
           quizAnswers[prefixedKey] = translatedValue;
         } else {
-          // Translate single value if it exists in the map
-          const translatedValue =
-            bengaliToEnglishMap[value as string] || (value as string);
+          // Translate and clean single value
+          const translatedValue = processAndCleanAnswer(value as string);
           // Add to quiz answers
           quizAnswers[prefixedKey] = translatedValue;
         }
       });
 
-      // Process mbti answers
-      Object.entries(answers.mbti).forEach(([key, value]) => {
+      // Process personality answers
+      Object.entries(answers.personality).forEach(([key, value]) => {
         if (typeof value === "string") {
-          const mbtiKey = `mbti_${key}`;
-          const translatedValue = bengaliToEnglishMap[value] || value;
+          const personalityKey = `personality_${key}`;
+          const translatedValue = processAndCleanAnswer(value);
           // Add to quiz answers
-          quizAnswers[mbtiKey] = translatedValue;
+          quizAnswers[personalityKey] = translatedValue;
         }
       });
 
       // Set answers in personalityQuiz
       submissionData.personalityQuiz.answers = quizAnswers;
 
-      // Calculate MBTI personality type and add it to submission
-      if (Object.keys(answers.mbti).length > 0) {
-        const personalityType = determinePersonalityType(answers.mbti);
+      // Calculate personality type and add it to submission
+      if (Object.keys(answers.personality).length > 0) {
+        const personalityType = determinePersonalityType(answers.personality);
         submissionData.personalityType = personalityType;
         submissionData.personalityQuiz.personalityType = personalityType;
       }
 
       console.log("Submitting quiz data to database:", submissionData);
-
+      debugger;
       // Call API to save quiz data
       const res = await fetch("/api/user/profile", {
         method: "PUT",
@@ -913,6 +1000,8 @@ export default function PersonalityQuiz({
       triggerCelebration();
       setPoints(points + 100); // Bonus points for completing
 
+      router.push("/matches");
+
       // Don't auto-close the modal to allow user to retake the quiz if they want
       // setTimeout(() => {
       //   onClose();
@@ -926,10 +1015,11 @@ export default function PersonalityQuiz({
   };
 
   // Function to navigate to matches page
-  const navigateToMatches = () => {
-    router.push("/matches");
-    onClose(); // Close the quiz modal
-  };
+  // const navigateToMatches = () => {
+  //   submitQuiz();
+  //   router.push("/matches");
+  //   onClose(); // Close the quiz modal
+  // };
 
   // Character animations based on mood
   const getCharacterAnimation = () => {
@@ -1068,7 +1158,7 @@ export default function PersonalityQuiz({
     return (
       <div className="mb-4">
         <div className="p-4 border rounded-lg bg-white shadow-sm">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-h-[300px] overflow-y-auto">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-h-[250px] overflow-y-auto pb-2">
             {questionObj.options?.map((year) => {
               const isSelected = selected === year;
               return (
@@ -1094,10 +1184,10 @@ export default function PersonalityQuiz({
   // Helper function to get the current section key for answers
   const getSectionKey = (
     section: string
-  ): "profile" | "preferences" | "mbti" => {
+  ): "profile" | "preferences" | "personality" => {
     if (section === "profile") return "profile";
     if (section === "preferences") return "preferences";
-    return "mbti";
+    return "personality";
   };
 
   // Update the useEffect to handle all multi-select questions
@@ -1141,7 +1231,7 @@ export default function PersonalityQuiz({
     setAnswers({
       profile: {},
       preferences: {},
-      mbti: {},
+      personality: {},
     });
     // Clear localStorage
     localStorage.removeItem("quizAnswers");
@@ -1151,830 +1241,958 @@ export default function PersonalityQuiz({
     setTimeout(() => setCharacterMood("happy"), 1500);
   };
 
-  if (!isOpen) return null;
+  // Add district selection component
+  const DistrictSelection: React.FC<{
+    selected: string | string[] | undefined;
+    onSelect: (district: string) => void;
+  }> = ({ selected, onSelect }) => {
+    // State for search input
+    const [searchQuery, setSearchQuery] = useState("");
 
-  return (
-    <div className="fixed inset-0 bg-purple-50 z-50 flex items-center justify-center">
-      {/* Website logo in the modal background */}
-      <div className="absolute top-4 left-4">
-        <h1 className="text-2xl font-bold text-purple-800">তালাদ্রু</h1>
-      </div>
+    // Filter districts based on search
+    const filteredDistricts = districts.filter((district) =>
+      district.bn_name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
-      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full h-full md:h-auto md:max-h-[90vh] overflow-y-auto relative">
-        {/* Points display at top */}
-        <div className="absolute top-4 right-4 bg-gradient-to-r from-purple-600 to-pink-500 text-white px-4 py-2 rounded-full font-bold">
-          ✨ {points} পয়েন্ট
+    return (
+      <div className="space-y-4">
+        <div className="relative mb-4">
+          <input
+            type="text"
+            className="w-full p-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            placeholder="জেলার নাম খুঁজুন..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <svg
+            className="w-5 h-5 text-gray-400 absolute left-3 top-3.5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
         </div>
 
-        {/* Modal Header */}
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex justify-between items-center">
-            <h3 className="text-2xl font-bold text-purple-700">
-              {!quizStarted && !quizCompleted && "আপনার পারফেক্ট ম্যাচ খুঁজুন!"}
-              {quizStarted &&
-                !quizCompleted &&
-                (quizSection === "profile"
-                  ? "প্রোফাইল তথ্য"
-                  : quizSection === "mbti"
-                  ? "ব্যক্তিত্ব কুইজ"
-                  : "পছন্দের বিবরণ")}
-              {quizCompleted && "অভিনন্দন! কুইজ সম্পূর্ণ হয়েছে!"}
-            </h3>
-            <button
-              onClick={closeModal}
-              className="text-gray-500 hover:text-gray-700"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-6 w-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-[220px] overflow-y-auto pb-2">
+          {filteredDistricts.map((district) => {
+            const isSelected = selected === district.bn_name;
+            return (
+              <div
+                key={district.bn_name}
+                onClick={() => onSelect(district.bn_name)}
+                className={`p-3 border rounded-lg cursor-pointer text-center transition-all ${
+                  isSelected
+                    ? "border-blue-500 bg-blue-50 shadow-md"
+                    : "border-gray-200 hover:border-blue-300"
+                }`}
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
+                {district.bn_name}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  // Component for rendering radio buttons in a horizontal layout
+  const SingleRowRadioQuestion: React.FC<{
+    questionObj: QuestionType;
+    selected: string | string[] | undefined;
+    onSelect: (answer: string) => void;
+  }> = ({ questionObj, selected, onSelect }) => {
+    return (
+      <div className="mb-4">
+        <div className="flex flex-wrap gap-2 justify-between">
+          {questionObj.options?.map((option) => {
+            const isSelected = selected === option;
+            const optionParts = option.split(" ");
+            const emoji = optionParts[optionParts.length - 1];
+            const text = optionParts.slice(0, -1).join(" ");
+
+            return (
+              <div
+                key={option}
+                onClick={() => onSelect(option)}
+                className={`flex-1 min-w-[70px] p-2 border rounded-lg cursor-pointer transition-all text-center transform ${
+                  isSelected
+                    ? "border-blue-500 bg-blue-50 scale-105 shadow-md"
+                    : "border-gray-200 hover:border-blue-300 hover:scale-105"
+                }`}
+              >
+                <div className="text-2xl mb-1">{emoji}</div>
+                <div className="text-xs font-medium">{text}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  // Function to get section introduction text
+  const getSectionIntroText = (section: string): string => {
+    switch (section) {
+      case "profile":
+        return "আপনার সম্পর্কে কিছু মৌলিক তথ্য দিন যা আপনার পরিচয় তুলে ধরবে।";
+      case "mbti":
+        return "আপনার আসল ব্যক্তিত্ব প্রকাশ করুন। মনে রাখবেন, এই উত্তরের উপর ভিত্তি করেই আপনার ম্যাচিং করা হবে - আদর্শ উত্তর নয়, আপনার সত্যিকারের আচরণের উত্তর দিন।";
+      case "preferences":
+        return "আপনার সত্যিকারের পছন্দ-অপছন্দ জানান। আমরা এর মাধ্যমে আপনার জন্য উপযুক্ত সঙ্গী খুঁজে বের করব।";
+      default:
+        return "";
+    }
+  };
+
+  // Update the div that contains the quiz modal to limit its height
+  return (
+    <>
+      {isOpen && (
+        <div className="fixed inset-0 bg-purple-50 z-50 flex items-center justify-center overflow-hidden">
+          {/* Website logo in the modal background */}
+          <div className="absolute top-4 left-4">
+            <Link href="/" className="text-2xl font-bold text-purple-800">
+              তালাদ্রু
+            </Link>
           </div>
 
-          {/* Progress Bar - only show during quiz */}
-          {quizStarted && !quizCompleted && (
-            <div className="mt-4 flex items-center">
-              <div className="flex-1">
-                <div className="h-2 bg-gray-200 rounded-full">
-                  <div
-                    className="h-full bg-gradient-to-r from-purple-600 to-pink-500 rounded-full transition-all duration-300 ease-in-out"
-                    style={{
-                      width: `${
-                        ((currentQuestion + 1) / getVisibleQuestions().length) *
-                        100
-                      }%`,
-                    }}
-                  ></div>
-                </div>
-              </div>
-              <span className="ml-4 text-gray-600 font-medium">
-                প্রশ্ন {currentQuestion + 1} / {getVisibleQuestions().length}
-              </span>
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col relative m-2">
+            {/* Points display at top */}
+            <div className="absolute top-4 right-4 bg-gradient-to-r from-purple-600 to-pink-500 text-white px-4 py-2 rounded-full font-bold z-10">
+              ✨ {points} পয়েন্ট
             </div>
-          )}
 
-          {/* Section progress indicators */}
-          {quizStarted && !quizCompleted && (
-            <div className="flex justify-center mt-4 space-x-2">
-              <div
-                className={`w-3 h-3 rounded-full ${
-                  quizSection === "profile" ? "bg-purple-600" : "bg-gray-300"
-                }`}
-              ></div>
-              <div
-                className={`w-3 h-3 rounded-full ${
-                  quizSection === "mbti" ? "bg-purple-600" : "bg-gray-300"
-                }`}
-              ></div>
-              <div
-                className={`w-3 h-3 rounded-full ${
-                  quizSection === "preferences"
-                    ? "bg-purple-600"
-                    : "bg-gray-300"
-                }`}
-              ></div>
-            </div>
-          )}
-        </div>
-
-        {/* Modal Body */}
-        <div className="p-6">
-          {/* Animated Character */}
-          <motion.div
-            className="w-32 h-32 mx-auto mb-4"
-            animate={getCharacterAnimation()}
-          >
-            {characterMood === "happy" && (
-              <svg viewBox="0 0 100 100" className="w-full h-full">
-                <circle cx="50" cy="50" r="40" fill="#A78BFA" />
-                <circle cx="35" cy="40" r="5" fill="#FFFFFF" />
-                <circle cx="65" cy="40" r="5" fill="#FFFFFF" />
-                <path
-                  d="M 30 60 Q 50 80 70 60"
-                  stroke="#FFFFFF"
-                  strokeWidth="3"
-                  fill="transparent"
-                />
-              </svg>
-            )}
-            {characterMood === "thinking" && (
-              <svg viewBox="0 0 100 100" className="w-full h-full">
-                <circle cx="50" cy="50" r="40" fill="#A78BFA" />
-                <circle cx="35" cy="40" r="5" fill="#FFFFFF" />
-                <circle cx="65" cy="40" r="5" fill="#FFFFFF" />
-                <path
-                  d="M 30 65 Q 50 65 70 65"
-                  stroke="#FFFFFF"
-                  strokeWidth="3"
-                  fill="transparent"
-                />
-                <path
-                  d="M 75 30 Q 85 35 80 40"
-                  stroke="#FFFFFF"
-                  strokeWidth="2"
-                  fill="transparent"
-                />
-              </svg>
-            )}
-            {characterMood === "excited" && (
-              <svg viewBox="0 0 100 100" className="w-full h-full">
-                <circle cx="50" cy="50" r="40" fill="#A78BFA" />
-                <circle cx="35" cy="40" r="5" fill="#FFFFFF" />
-                <circle cx="65" cy="40" r="5" fill="#FFFFFF" />
-                <path
-                  d="M 30 60 Q 50 85 70 60"
-                  stroke="#FFFFFF"
-                  strokeWidth="4"
-                  fill="transparent"
-                />
-                <path
-                  d="M 20 25 L 35 15"
-                  stroke="#FFFFFF"
-                  strokeWidth="2"
-                  fill="transparent"
-                />
-                <path
-                  d="M 80 25 L 65 15"
-                  stroke="#FFFFFF"
-                  strokeWidth="2"
-                  fill="transparent"
-                />
-              </svg>
-            )}
-          </motion.div>
-
-          {/* Streak counter */}
-          {quizStarted && !quizCompleted && streakCount > 0 && (
-            <div className="absolute top-16 left-4 bg-amber-400 text-amber-900 px-2 py-1 rounded-lg font-bold flex items-center text-sm">
-              <span className="mr-1">🔥</span>
-              {streakCount} স্ট্রিক
-            </div>
-          )}
-
-          {/* Introduction Screen */}
-          {!quizStarted && !quizCompleted && (
-            <div className="text-center space-y-6">
-              <h4 className="text-xl font-semibold">
-                আপনার পারফেক্ট ম্যাচ আনলক করুন!
-              </h4>
-
-              <p className="text-gray-600">
-                আমাদের AI-পাওয়ার্ড কুইজ আপনার ব্যক্তিত্ব, পছন্দ এবং সম্পর্কের
-                ধরন বিশ্লেষণ করে আপনার সবচেয়ে উপযুক্ত ম্যাচগুলি খুঁজে বের করে।
-              </p>
-
-              <div className="bg-purple-50 p-4 rounded-lg">
-                <ul className="text-left space-y-2">
-                  <li className="flex items-start">
-                    <svg
-                      className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
-                    <span className="text-gray-700">মাত্র ৩টি কুইজ সেকশন</span>
-                  </li>
-                  <li className="flex items-start">
-                    <svg
-                      className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
-                    <span className="text-gray-700">
-                      মাত্র ৫ মিনিট সময় লাগবে
-                    </span>
-                  </li>
-                  <li className="flex items-start">
-                    <svg
-                      className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
-                    <span className="text-gray-700">৯৫% নির্ভুল ম্যাচিং</span>
-                  </li>
-                </ul>
-              </div>
-
-              <div className="py-4">
+            {/* Modal Header */}
+            <div className="p-4 border-b border-gray-200 sticky top-0 bg-white z-10">
+              <div className="flex justify-between items-center">
+                <h3 className="text-2xl font-bold text-purple-700">
+                  {!quizStarted &&
+                    !quizCompleted &&
+                    "আপনার পারফেক্ট ম্যাচ খুঁজুন!"}
+                  {quizStarted &&
+                    !quizCompleted &&
+                    (quizSection === "profile"
+                      ? "প্রোফাইল তথ্য"
+                      : quizSection === "personality"
+                      ? "ব্যক্তিত্ব কুইজ"
+                      : "পছন্দের বিবরণ")}
+                  {quizCompleted && "অভিনন্দন! কুইজ সম্পূর্ণ হয়েছে!"}
+                </h3>
                 <button
-                  onClick={startQuiz}
-                  className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white px-10 py-4 rounded-full font-bold text-xl transition-all transform hover:scale-105 w-full md:w-auto"
+                  onClick={closeModal}
+                  className="text-gray-500 hover:text-gray-700"
                 >
-                  শুরু করুন
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-6 w-6"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
                 </button>
               </div>
 
-              <p className="text-sm text-gray-500">
-                সেরা ফলাফলের জন্য সততার সাথে উত্তর দিন!
-              </p>
-            </div>
-          )}
+              {/* Progress Bar - only show during quiz */}
+              {quizStarted && !quizCompleted && (
+                <div className="mt-2 flex items-center">
+                  <div className="flex-1">
+                    <div className="h-2 bg-gray-200 rounded-full">
+                      <div
+                        className="h-full bg-gradient-to-r from-purple-600 to-pink-500 rounded-full transition-all duration-300 ease-in-out"
+                        style={{
+                          width: `${
+                            ((currentQuestion + 1) /
+                              getVisibleQuestions().length) *
+                            100
+                          }%`,
+                        }}
+                      ></div>
+                    </div>
+                  </div>
+                  <span className="ml-4 text-gray-600 font-medium text-sm">
+                    প্রশ্ন {currentQuestion + 1} /{" "}
+                    {getVisibleQuestions().length}
+                  </span>
+                </div>
+              )}
 
-          {/* Quiz Questions */}
-          {quizStarted && !quizCompleted && (
-            <div className="space-y-6 relative">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={`${quizSection}_${currentQuestion}`}
-                  initial={{ opacity: 0, x: 50 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -50 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <h4 className="text-xl font-semibold mb-2">
-                    {currentQuestionObj.question}
+              {/* Section progress indicators */}
+              {quizStarted && !quizCompleted && (
+                <div className="flex justify-center mt-2 space-x-4">
+                  <div
+                    className={`px-3 py-1 rounded-full text-sm transition-all duration-300 ${
+                      quizSection === "profile"
+                        ? "bg-purple-600 text-white font-medium"
+                        : "bg-gray-200 text-gray-600"
+                    }`}
+                  >
+                    আপনার পরিচয়
+                  </div>
+                  <div
+                    className={`px-3 py-1 rounded-full text-sm transition-all duration-300 ${
+                      quizSection === "personality"
+                        ? "bg-purple-600 text-white font-medium"
+                        : "bg-gray-200 text-gray-600"
+                    }`}
+                  >
+                    ব্যাক্তিত্ব
+                  </div>
+                  <div
+                    className={`px-3 py-1 rounded-full text-sm transition-all duration-300 ${
+                      quizSection === "preferences"
+                        ? "bg-purple-600 text-white font-medium"
+                        : "bg-gray-200 text-gray-600"
+                    }`}
+                  >
+                    পছন্দ
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 overflow-y-auto flex-1">
+              {/* Animated Character */}
+              <motion.div
+                className="w-24 h-24 mx-auto mb-2"
+                animate={getCharacterAnimation()}
+              >
+                {characterMood === "happy" && (
+                  <svg viewBox="0 0 100 100" className="w-full h-full">
+                    <circle cx="50" cy="50" r="40" fill="#A78BFA" />
+                    <circle cx="35" cy="40" r="5" fill="#FFFFFF" />
+                    <circle cx="65" cy="40" r="5" fill="#FFFFFF" />
+                    <path
+                      d="M 30 60 Q 50 80 70 60"
+                      stroke="#FFFFFF"
+                      strokeWidth="3"
+                      fill="transparent"
+                    />
+                  </svg>
+                )}
+                {characterMood === "thinking" && (
+                  <svg viewBox="0 0 100 100" className="w-full h-full">
+                    <circle cx="50" cy="50" r="40" fill="#A78BFA" />
+                    <circle cx="35" cy="40" r="5" fill="#FFFFFF" />
+                    <circle cx="65" cy="40" r="5" fill="#FFFFFF" />
+                    <path
+                      d="M 30 65 Q 50 65 70 65"
+                      stroke="#FFFFFF"
+                      strokeWidth="3"
+                      fill="transparent"
+                    />
+                    <path
+                      d="M 75 30 Q 85 35 80 40"
+                      stroke="#FFFFFF"
+                      strokeWidth="2"
+                      fill="transparent"
+                    />
+                  </svg>
+                )}
+                {characterMood === "excited" && (
+                  <svg viewBox="0 0 100 100" className="w-full h-full">
+                    <circle cx="50" cy="50" r="40" fill="#A78BFA" />
+                    <circle cx="35" cy="40" r="5" fill="#FFFFFF" />
+                    <circle cx="65" cy="40" r="5" fill="#FFFFFF" />
+                    <path
+                      d="M 30 60 Q 50 85 70 60"
+                      stroke="#FFFFFF"
+                      strokeWidth="4"
+                      fill="transparent"
+                    />
+                    <path
+                      d="M 20 25 L 35 15"
+                      stroke="#FFFFFF"
+                      strokeWidth="2"
+                      fill="transparent"
+                    />
+                    <path
+                      d="M 80 25 L 65 15"
+                      stroke="#FFFFFF"
+                      strokeWidth="2"
+                      fill="transparent"
+                    />
+                  </svg>
+                )}
+              </motion.div>
+
+              {/* Streak counter */}
+              {quizStarted && !quizCompleted && streakCount > 0 && (
+                <div className="absolute top-16 left-4 bg-amber-400 text-amber-900 px-2 py-1 rounded-lg font-bold flex items-center text-sm">
+                  <span className="mr-1">🔥</span>
+                  {streakCount} স্ট্রিক
+                </div>
+              )}
+
+              {/* Introduction Screen */}
+              {!quizStarted && !quizCompleted && (
+                <div className="text-center space-y-6">
+                  <h4 className="text-xl font-semibold">
+                    আপনার পারফেক্ট ম্যাচ আনলক করুন!
                   </h4>
-                  <p className="text-gray-500 mb-6">
-                    {currentQuestionObj.description}
+
+                  <p className="text-gray-600">
+                    আমাদের AI-পাওয়ার্ড কুইজ আপনার ব্যক্তিত্ব, পছন্দ এবং
+                    সম্পর্কের ধরন বিশ্লেষণ করে আপনার সবচেয়ে উপযুক্ত ম্যাচগুলি
+                    খুঁজে বের করে।
                   </p>
 
-                  {/* Different question types rendering */}
-                  {(() => {
-                    const type = currentQuestionObj.type || "radio";
-
-                    // Text input
-                    if (type === "text") {
-                      return (
-                        <div className="space-y-4">
-                          <input
-                            type="text"
-                            className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                            onChange={(e) => {
-                              const updatedAnswers = { ...answers };
-                              const sectionKey = getSectionKey(quizSection);
-                              updatedAnswers[sectionKey][
-                                currentQuestionObj.id
-                              ] = e.target.value;
-                              setAnswers(updatedAnswers);
-                            }}
-                            value={
-                              (answers[getSectionKey(quizSection)][
-                                currentQuestionObj.id
-                              ] as string) || ""
-                            }
-                            placeholder="আপনার উত্তর লিখুন..."
-                            onKeyDown={(e) => {
-                              // Proceed to next question on Enter if there's input
-                              if (
-                                e.key === "Enter" &&
-                                answers[getSectionKey(quizSection)][
-                                  currentQuestionObj.id
-                                ]
-                              ) {
-                                handleAnswerSelect(
-                                  answers[getSectionKey(quizSection)][
-                                    currentQuestionObj.id
-                                  ] as string
-                                );
-                              }
-                            }}
+                  <div className="bg-purple-50 p-4 rounded-lg">
+                    <div className="text-left mb-2 font-medium text-purple-800">
+                      সত্যি উত্তর দিন, কারণ:
+                    </div>
+                    <ul className="text-left space-y-2">
+                      <li className="flex items-start">
+                        <svg
+                          className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
                           />
-                          <div className="flex justify-start">
-                            <button
-                              onClick={() => {
-                                if (
-                                  answers[getSectionKey(quizSection)][
+                        </svg>
+                        <span className="text-gray-700">
+                          আমরা আপনাকে অন্যদের তাদের আসল স্বভাবের উপর ভিত্তি করে
+                          পরিচয় করাই
+                        </span>
+                      </li>
+                      <li className="flex items-start">
+                        <svg
+                          className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                        <span className="text-gray-700">
+                          আপনার ব্যক্তিত্ব, আসক্তির ধরন, ও মূল্যবোধ অনুযায়ী
+                          ম্যাচ নির্বাচিত হয়
+                        </span>
+                      </li>
+                      <li className="flex items-start">
+                        <svg
+                          className="h-5 w-5 text-purple-600 mr-2 flex-shrink-0 mt-0.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                        <span className="text-gray-700">
+                          আদর্শ উত্তর নয়, আসল আপনার উত্তর দিন - এতেই সুখী
+                          সম্পর্ক গড়া সম্ভব
+                        </span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="py-4">
+                    <button
+                      onClick={startQuiz}
+                      className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white px-10 py-4 rounded-full font-bold text-xl transition-all transform hover:scale-105 w-full md:w-auto"
+                    >
+                      শুরু করুন
+                    </button>
+                  </div>
+
+                  <p className="text-sm text-gray-500">
+                    সেরা ফলাফলের জন্য সততার সাথে উত্তর দিন!
+                  </p>
+                </div>
+              )}
+
+              {/* Quiz Questions */}
+              {quizStarted && !quizCompleted && (
+                <div className="space-y-6 relative">
+                  {/* Section introduction text */}
+                  {currentQuestion === 0 && (
+                    <div className="mb-4 p-3 bg-purple-50 rounded-lg text-purple-800 text-sm">
+                      {getSectionIntroText(quizSection)}
+                    </div>
+                  )}
+
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={`${quizSection}_${currentQuestion}`}
+                      initial={{ opacity: 0, x: 50 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -50 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <h4 className="text-xl font-semibold mb-2">
+                        {currentQuestionObj.question}
+                      </h4>
+                      <p className="text-gray-500 mb-6">
+                        {currentQuestionObj.description}
+                      </p>
+
+                      {/* Different question types rendering */}
+                      {(() => {
+                        const type = currentQuestionObj.type || "radio";
+
+                        // Text input
+                        if (type === "text") {
+                          return (
+                            <div className="space-y-4">
+                              <input
+                                type="text"
+                                className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                onChange={(e) => {
+                                  const updatedAnswers = { ...answers };
+                                  const sectionKey = getSectionKey(quizSection);
+                                  updatedAnswers[sectionKey][
                                     currentQuestionObj.id
-                                  ]
-                                ) {
-                                  handleAnswerSelect(
+                                  ] = e.target.value;
+                                  setAnswers(updatedAnswers);
+                                }}
+                                value={
+                                  (answers[getSectionKey(quizSection)][
+                                    currentQuestionObj.id
+                                  ] as string) || ""
+                                }
+                                placeholder="আপনার উত্তর লিখুন..."
+                                onKeyDown={(e) => {
+                                  // Proceed to next question on Enter if there's input
+                                  if (
+                                    e.key === "Enter" &&
                                     answers[getSectionKey(quizSection)][
                                       currentQuestionObj.id
-                                    ] as string
-                                  );
-                                }
-                              }}
-                              disabled={
-                                !answers[getSectionKey(quizSection)][
-                                  currentQuestionObj.id
-                                ]
-                              }
-                              className={`px-6 py-3 rounded-lg font-semibold transition-colors ${
-                                answers[getSectionKey(quizSection)][
-                                  currentQuestionObj.id
-                                ]
-                                  ? "bg-purple-600 text-white hover:bg-purple-700"
-                                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
-                              }`}
-                            >
-                              পরবর্তী
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    // Location input (similar to text)
-                    if (type === "location") {
-                      return (
-                        <div className="space-y-4">
-                          <input
-                            type="text"
-                            className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                            onChange={(e) => {
-                              const updatedAnswers = { ...answers };
-                              const sectionKey = getSectionKey(quizSection);
-                              updatedAnswers[sectionKey][
-                                currentQuestionObj.id
-                              ] = e.target.value;
-                              setAnswers(updatedAnswers);
-                            }}
-                            value={
-                              (answers[getSectionKey(quizSection)][
-                                currentQuestionObj.id
-                              ] as string) || ""
-                            }
-                            placeholder="আপনার শহর/অঞ্চল লিখুন..."
-                            onKeyDown={(e) => {
-                              // Proceed to next question on Enter if there's input
-                              if (
-                                e.key === "Enter" &&
-                                answers[getSectionKey(quizSection)][
-                                  currentQuestionObj.id
-                                ]
-                              ) {
-                                handleAnswerSelect(
-                                  answers[getSectionKey(quizSection)][
-                                    currentQuestionObj.id
-                                  ] as string
-                                );
-                              }
-                            }}
-                          />
-                          <div className="flex justify-start">
-                            <button
-                              onClick={() => {
-                                if (
-                                  answers[getSectionKey(quizSection)][
-                                    currentQuestionObj.id
-                                  ]
-                                ) {
-                                  handleAnswerSelect(
-                                    answers[getSectionKey(quizSection)][
-                                      currentQuestionObj.id
-                                    ] as string
-                                  );
-                                }
-                              }}
-                              disabled={
-                                !answers[getSectionKey(quizSection)][
-                                  currentQuestionObj.id
-                                ]
-                              }
-                              className={`px-6 py-3 rounded-lg font-semibold transition-colors ${
-                                answers[getSectionKey(quizSection)][
-                                  currentQuestionObj.id
-                                ]
-                                  ? "bg-purple-600 text-white hover:bg-purple-700"
-                                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
-                              }`}
-                            >
-                              পরবর্তী
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    // Date-picker (showing options in a grid)
-                    if (type === "date-picker" && currentQuestionObj.options) {
-                      return (
-                        <DatePickerQuestion
-                          questionObj={currentQuestionObj}
-                          selected={
-                            answers[getSectionKey(quizSection)][
-                              currentQuestionObj.id
-                            ]
-                          }
-                          onSelect={(value) => handleAnswerSelect(value)}
-                        />
-                      );
-                    }
-
-                    // Dropdown
-                    if (type === "dropdown" && currentQuestionObj.options) {
-                      return (
-                        <div className="grid grid-cols-1 gap-3">
-                          {currentQuestionObj.options.map((option, index) => (
-                            <motion.button
-                              key={index}
-                              whileHover={{ scale: 1.03 }}
-                              whileTap={{ scale: 0.97 }}
-                              onClick={() => {
-                                // Select the option and proceed automatically
-                                handleAnswerSelect(option);
-                              }}
-                              className={`flex items-center bg-white p-4 border rounded-lg cursor-pointer transition-all ${
-                                answers[getSectionKey(quizSection)][
-                                  currentQuestionObj.id
-                                ] === option
-                                  ? "border-blue-500 bg-blue-50"
-                                  : "border-gray-200 hover:border-blue-300"
-                              }`}
-                            >
-                              <span className="font-medium">{option}</span>
-                              {answers[getSectionKey(quizSection)][
-                                currentQuestionObj.id
-                              ] === option && (
-                                <svg
-                                  className="ml-auto h-5 w-5 text-blue-500"
-                                  viewBox="0 0 20 20"
-                                  fill="currentColor"
-                                >
-                                  <path
-                                    fillRule="evenodd"
-                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                                    clipRule="evenodd"
-                                  />
-                                </svg>
-                              )}
-                            </motion.button>
-                          ))}
-                        </div>
-                      );
-                    }
-
-                    // Multi-select
-                    if (type === "multi-select" && currentQuestionObj.options) {
-                      return (
-                        <div className="space-y-4">
-                          <div className="grid grid-cols-2 gap-2">
-                            {currentQuestionObj.options.map((option, index) => {
-                              const isSelected =
-                                selectedOptions.includes(option);
-
-                              return (
-                                <motion.button
-                                  key={index}
-                                  whileHover={{ scale: 1.03 }}
-                                  whileTap={{ scale: 0.97 }}
-                                  onClick={() => {
-                                    const updatedOptions = isSelected
-                                      ? selectedOptions.filter(
-                                          (item) => item !== option
-                                        )
-                                      : [...selectedOptions, option];
-
-                                    setSelectedOptions(updatedOptions);
-                                    const updatedAnswers = { ...answers };
-                                    const sectionKey =
-                                      getSectionKey(quizSection);
-                                    updatedAnswers[sectionKey][
-                                      currentQuestionObj.id
-                                    ] = updatedOptions;
-                                    setAnswers(updatedAnswers);
-
-                                    // Save to localStorage
-                                    localStorage.setItem(
-                                      "quizAnswers",
-                                      JSON.stringify(updatedAnswers)
+                                    ]
+                                  ) {
+                                    handleAnswerSelect(
+                                      answers[getSectionKey(quizSection)][
+                                        currentQuestionObj.id
+                                      ] as string
                                     );
+                                  }
+                                }}
+                              />
+                              <div className="flex justify-start">
+                                <button
+                                  onClick={() => {
+                                    if (
+                                      answers[getSectionKey(quizSection)][
+                                        currentQuestionObj.id
+                                      ]
+                                    ) {
+                                      handleAnswerSelect(
+                                        answers[getSectionKey(quizSection)][
+                                          currentQuestionObj.id
+                                        ] as string
+                                      );
+                                    }
                                   }}
-                                  className={`flex items-center justify-center p-4 border rounded-lg cursor-pointer transition-all ${
-                                    isSelected
-                                      ? "bg-purple-100 border-purple-500 text-purple-700"
-                                      : "bg-white border-gray-300 text-gray-700"
+                                  disabled={
+                                    !answers[getSectionKey(quizSection)][
+                                      currentQuestionObj.id
+                                    ]
+                                  }
+                                  className={`px-6 py-3 rounded-lg font-semibold transition-colors ${
+                                    answers[getSectionKey(quizSection)][
+                                      currentQuestionObj.id
+                                    ]
+                                      ? "bg-purple-600 text-white hover:bg-purple-700"
+                                      : "bg-gray-300 text-gray-500 cursor-not-allowed"
                                   }`}
                                 >
-                                  <span className="font-medium">{option}</span>
-                                  {isSelected && (
-                                    <svg
-                                      className="ml-2 w-5 h-5 text-purple-600"
-                                      fill="none"
-                                      viewBox="0 0 24 24"
-                                      stroke="currentColor"
-                                    >
-                                      <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M5 13l4 4L19 7"
-                                      />
-                                    </svg>
-                                  )}
-                                </motion.button>
-                              );
-                            })}
-                          </div>
-                          <div className="flex justify-start">
-                            <button
-                              onClick={() => {
-                                if (selectedOptions.length > 0) {
-                                  // Special handling for key multi-select questions
-                                  if (
-                                    (quizSection === "profile" &&
-                                      currentQuestionObj.id === 12) ||
-                                    (quizSection === "preferences" &&
-                                      currentQuestionObj.id === 2)
-                                  ) {
-                                    // Save the selected options
-                                    const updatedAnswers = { ...answers };
-                                    const sectionKey =
-                                      getSectionKey(quizSection);
-                                    updatedAnswers[sectionKey][
+                                  পরবর্তী
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // Location input (district selection with cards)
+                        if (type === "location") {
+                          return (
+                            <DistrictSelection
+                              selected={
+                                answers[getSectionKey(quizSection)][
+                                  currentQuestionObj.id
+                                ]
+                              }
+                              onSelect={(district) =>
+                                handleAnswerSelect(district)
+                              }
+                            />
+                          );
+                        }
+
+                        // Date-picker (showing options in a grid)
+                        if (
+                          type === "date-picker" &&
+                          currentQuestionObj.options
+                        ) {
+                          return (
+                            <DatePickerQuestion
+                              questionObj={currentQuestionObj}
+                              selected={
+                                answers[getSectionKey(quizSection)][
+                                  currentQuestionObj.id
+                                ]
+                              }
+                              onSelect={(value) => handleAnswerSelect(value)}
+                            />
+                          );
+                        }
+
+                        // Dropdown
+                        if (type === "dropdown" && currentQuestionObj.options) {
+                          return (
+                            <div className="grid grid-cols-1 gap-3">
+                              {currentQuestionObj.options.map(
+                                (option, index) => (
+                                  <motion.button
+                                    key={index}
+                                    whileHover={{ scale: 1.03 }}
+                                    whileTap={{ scale: 0.97 }}
+                                    onClick={() => {
+                                      // Select the option and proceed automatically
+                                      handleAnswerSelect(option);
+                                    }}
+                                    className={`flex items-center bg-white p-4 border rounded-lg cursor-pointer transition-all ${
+                                      answers[getSectionKey(quizSection)][
+                                        currentQuestionObj.id
+                                      ] === option
+                                        ? "border-blue-500 bg-blue-50"
+                                        : "border-gray-200 hover:border-blue-300"
+                                    }`}
+                                  >
+                                    <span className="font-medium">
+                                      {option}
+                                    </span>
+                                    {answers[getSectionKey(quizSection)][
                                       currentQuestionObj.id
-                                    ] = selectedOptions;
-                                    setAnswers(updatedAnswers);
+                                    ] === option && (
+                                      <svg
+                                        className="ml-auto h-5 w-5 text-blue-500"
+                                        viewBox="0 0 20 20"
+                                        fill="currentColor"
+                                      >
+                                        <path
+                                          fillRule="evenodd"
+                                          d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                                          clipRule="evenodd"
+                                        />
+                                      </svg>
+                                    )}
+                                  </motion.button>
+                                )
+                              )}
+                            </div>
+                          );
+                        }
 
-                                    // Save to localStorage
-                                    localStorage.setItem(
-                                      "quizAnswers",
-                                      JSON.stringify(updatedAnswers)
+                        // Multi-select
+                        if (
+                          type === "multi-select" &&
+                          currentQuestionObj.options
+                        ) {
+                          return (
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-2 gap-2 max-h-[280px] overflow-y-auto pb-2">
+                                {currentQuestionObj.options.map(
+                                  (option, index) => {
+                                    const isSelected =
+                                      selectedOptions.includes(option);
+
+                                    return (
+                                      <motion.button
+                                        key={index}
+                                        whileHover={{ scale: 1.03 }}
+                                        whileTap={{ scale: 0.97 }}
+                                        onClick={() => {
+                                          const updatedOptions = isSelected
+                                            ? selectedOptions.filter(
+                                                (item) => item !== option
+                                              )
+                                            : [...selectedOptions, option];
+
+                                          setSelectedOptions(updatedOptions);
+                                          const updatedAnswers = { ...answers };
+                                          const sectionKey =
+                                            getSectionKey(quizSection);
+                                          updatedAnswers[sectionKey][
+                                            currentQuestionObj.id
+                                          ] = updatedOptions;
+                                          setAnswers(updatedAnswers);
+
+                                          // Save to localStorage
+                                          localStorage.setItem(
+                                            "quizAnswers",
+                                            JSON.stringify(updatedAnswers)
+                                          );
+                                        }}
+                                        className={`flex items-center justify-center p-4 border rounded-lg cursor-pointer transition-all ${
+                                          isSelected
+                                            ? "bg-purple-100 border-purple-500 text-purple-700"
+                                            : "bg-white border-gray-300 text-gray-700"
+                                        }`}
+                                      >
+                                        <span className="font-medium">
+                                          {option}
+                                        </span>
+                                        {isSelected && (
+                                          <svg
+                                            className="ml-2 w-5 h-5 text-purple-600"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                          >
+                                            <path
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                              strokeWidth={2}
+                                              d="M5 13l4 4L19 7"
+                                            />
+                                          </svg>
+                                        )}
+                                      </motion.button>
                                     );
-
-                                    // Increment streak and points
-                                    setStreakCount((prev) => prev + 1);
-                                    setPoints((prev) => prev + 10);
-
-                                    // If streak hits multiples of 5, trigger celebration
-                                    if ((streakCount + 1) % 5 === 0) {
-                                      triggerCelebration();
-                                      setPoints((prev) => prev + 20); // Bonus points for streak
-                                    }
-
-                                    // Check if we're at the end of a section
-                                    const currentQuestionsArray =
-                                      getVisibleQuestions();
-                                    if (
-                                      currentQuestion <
-                                      currentQuestionsArray.length - 1
-                                    ) {
-                                      // Go to next question
-                                      setCurrentQuestion(currentQuestion + 1);
-                                      setSelectedOptions([]);
-                                      setCharacterMood("thinking");
-                                      setTimeout(
-                                        () => setCharacterMood("happy"),
-                                        800
-                                      );
-                                    } else {
-                                      // Go to next section if we're at the last question
-                                      goToNextSection();
-                                    }
-                                  } else {
-                                    // Normal handling for other multi-select questions
-                                    handleAnswerSelect(selectedOptions);
                                   }
-                                }
-                              }}
-                              className="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700 transition"
-                              disabled={selectedOptions.length === 0}
-                            >
-                              পরবর্তী
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    }
+                                )}
+                              </div>
+                              <div className="flex justify-start sticky bottom-0 mt-4 pt-2 bg-white">
+                                <button
+                                  onClick={() => {
+                                    if (selectedOptions.length > 0) {
+                                      // Special handling for key multi-select questions
+                                      if (
+                                        (quizSection === "profile" &&
+                                          currentQuestionObj.id === 12) ||
+                                        (quizSection === "preferences" &&
+                                          currentQuestionObj.id === 2)
+                                      ) {
+                                        // Save the selected options
+                                        const updatedAnswers = { ...answers };
+                                        const sectionKey =
+                                          getSectionKey(quizSection);
+                                        updatedAnswers[sectionKey][
+                                          currentQuestionObj.id
+                                        ] = selectedOptions;
+                                        setAnswers(updatedAnswers);
 
-                    // Emoji-radio or radio (default case)
-                    if (currentQuestionObj.options) {
-                      if (currentQuestionObj.type === "card-select") {
-                        return (
-                          <CardSelectQuestion
-                            questionObj={currentQuestionObj}
-                            selected={
-                              answers[getSectionKey(quizSection)][
-                                currentQuestionObj.id
-                              ]
-                            }
-                            onSelect={(value) => handleAnswerSelect(value)}
-                          />
-                        );
-                      } else if (currentQuestionObj.type === "emoji-radio") {
-                        return (
-                          <EmojiRadioQuestion
-                            questionObj={currentQuestionObj}
-                            selected={
-                              answers[getSectionKey(quizSection)][
-                                currentQuestionObj.id
-                              ]
-                            }
-                            onSelect={(value) => handleAnswerSelect(value)}
-                          />
-                        );
-                      } else {
+                                        // Save to localStorage
+                                        localStorage.setItem(
+                                          "quizAnswers",
+                                          JSON.stringify(updatedAnswers)
+                                        );
+
+                                        // Increment streak and points
+                                        setStreakCount((prev) => prev + 1);
+                                        setPoints((prev) => prev + 10);
+
+                                        // If streak hits multiples of 5, trigger celebration
+                                        if ((streakCount + 1) % 5 === 0) {
+                                          triggerCelebration();
+                                          setPoints((prev) => prev + 20); // Bonus points for streak
+                                        }
+
+                                        // Check if we're at the end of a section
+                                        const currentQuestionsArray =
+                                          getVisibleQuestions();
+                                        if (
+                                          currentQuestion <
+                                          currentQuestionsArray.length - 1
+                                        ) {
+                                          // Go to next question
+                                          setCurrentQuestion(
+                                            currentQuestion + 1
+                                          );
+                                          setSelectedOptions([]);
+                                          setCharacterMood("thinking");
+                                          setTimeout(
+                                            () => setCharacterMood("happy"),
+                                            800
+                                          );
+                                        } else {
+                                          // Go to next section if we're at the last question
+                                          goToNextSection();
+                                        }
+                                      } else {
+                                        // Normal handling for other multi-select questions
+                                        handleAnswerSelect(selectedOptions);
+                                      }
+                                    }
+                                  }}
+                                  className="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700 transition"
+                                  disabled={selectedOptions.length === 0}
+                                >
+                                  পরবর্তী
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+
                         // Default radio buttons
-                        return (
-                          <div className="grid grid-cols-1 gap-3">
-                            {currentQuestionObj.options.map((option, index) => (
-                              <motion.button
-                                key={index}
-                                whileHover={{ scale: 1.03 }}
-                                whileTap={{ scale: 0.97 }}
-                                onClick={() => {
-                                  // Select the option and proceed automatically
-                                  handleAnswerSelect(option);
-                                }}
-                                className={`flex items-center bg-white p-4 border rounded-lg cursor-pointer transition-all ${
+                        if (currentQuestionObj.options) {
+                          if (currentQuestionObj.type === "card-select") {
+                            return (
+                              <CardSelectQuestion
+                                questionObj={currentQuestionObj}
+                                selected={
                                   answers[getSectionKey(quizSection)][
                                     currentQuestionObj.id
-                                  ] === option
-                                    ? "border-blue-500 bg-blue-50"
-                                    : "border-gray-200 hover:border-blue-300"
-                                }`}
-                              >
-                                <span className="font-medium">{option}</span>
-                                {answers[getSectionKey(quizSection)][
-                                  currentQuestionObj.id
-                                ] === option && (
-                                  <svg
-                                    className="ml-auto h-5 w-5 text-blue-500"
-                                    viewBox="0 0 20 20"
-                                    fill="currentColor"
-                                  >
-                                    <path
-                                      fillRule="evenodd"
-                                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                                      clipRule="evenodd"
-                                    />
-                                  </svg>
+                                  ]
+                                }
+                                onSelect={(value) => handleAnswerSelect(value)}
+                              />
+                            );
+                          } else if (
+                            currentQuestionObj.type === "emoji-radio"
+                          ) {
+                            return (
+                              <EmojiRadioQuestion
+                                questionObj={currentQuestionObj}
+                                selected={
+                                  answers[getSectionKey(quizSection)][
+                                    currentQuestionObj.id
+                                  ]
+                                }
+                                onSelect={(value) => handleAnswerSelect(value)}
+                              />
+                            );
+                          } else if (
+                            quizSection === "personality" &&
+                            currentQuestionObj.type === "radio"
+                          ) {
+                            // Use our horizontal radio layout for personality questions
+                            return (
+                              <SingleRowRadioQuestion
+                                questionObj={currentQuestionObj}
+                                selected={
+                                  answers[getSectionKey(quizSection)][
+                                    currentQuestionObj.id
+                                  ]
+                                }
+                                onSelect={(value) => handleAnswerSelect(value)}
+                              />
+                            );
+                          } else {
+                            // Default radio buttons for other sections
+                            return (
+                              <div className="grid grid-cols-1 gap-3">
+                                {currentQuestionObj.options.map(
+                                  (option, index) => (
+                                    <motion.button
+                                      key={index}
+                                      whileHover={{ scale: 1.03 }}
+                                      whileTap={{ scale: 0.97 }}
+                                      onClick={() => {
+                                        // Select the option and proceed automatically
+                                        handleAnswerSelect(option);
+                                      }}
+                                      className={`flex items-center bg-white p-4 border rounded-lg cursor-pointer transition-all ${
+                                        answers[getSectionKey(quizSection)][
+                                          currentQuestionObj.id
+                                        ] === option
+                                          ? "border-blue-500 bg-blue-50"
+                                          : "border-gray-200 hover:border-blue-300"
+                                      }`}
+                                    >
+                                      <span className="font-medium">
+                                        {option}
+                                      </span>
+                                      {answers[getSectionKey(quizSection)][
+                                        currentQuestionObj.id
+                                      ] === option && (
+                                        <svg
+                                          className="ml-auto h-5 w-5 text-blue-500"
+                                          viewBox="0 0 20 20"
+                                          fill="currentColor"
+                                        >
+                                          <path
+                                            fillRule="evenodd"
+                                            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                                            clipRule="evenodd"
+                                          />
+                                        </svg>
+                                      )}
+                                    </motion.button>
+                                  )
                                 )}
-                              </motion.button>
-                            ))}
+                              </div>
+                            );
+                          }
+                        }
+
+                        return (
+                          <div className="text-center py-4">
+                            <p>
+                              সমস্যা হয়েছে। পরবর্তী প্রশ্নে যাওয়ার জন্য ক্লিক
+                              করুন।
+                            </p>
+                            <button
+                              onClick={() => {
+                                setCurrentQuestion(currentQuestion + 1);
+                              }}
+                              className="mt-3 bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold"
+                            >
+                              পরবর্তী প্রশ্নে যান
+                            </button>
                           </div>
                         );
-                      }
-                    }
+                      })()}
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+              )}
 
-                    return (
-                      <div className="text-center py-4">
-                        <p>
-                          সমস্যা হয়েছে। পরবর্তী প্রশ্নে যাওয়ার জন্য ক্লিক
-                          করুন।
-                        </p>
-                        <button
-                          onClick={() => {
-                            setCurrentQuestion(currentQuestion + 1);
-                          }}
-                          className="mt-3 bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold"
-                        >
-                          পরবর্তী প্রশ্নে যান
-                        </button>
+              {/* Completion Screen */}
+              {quizCompleted && (
+                <div className="text-center space-y-6">
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{
+                      type: "spring",
+                      stiffness: 260,
+                      damping: 20,
+                    }}
+                    className="w-28 h-28 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"
+                  >
+                    <svg
+                      className="w-16 h-16 text-green-600"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 50 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.5 }}
+                  >
+                    <h4 className="text-2xl font-semibold">
+                      অভিনন্দন! কুইজ সম্পূর্ণ হয়েছে
+                    </h4>
+
+                    <p className="text-gray-600 mt-4">
+                      আপনি সফলভাবে {points} পয়েন্ট অর্জন করেছেন!
+                    </p>
+
+                    <div className="bg-purple-50 p-4 rounded-lg mt-4 mb-6 inline-block">
+                      <div className="text-2xl font-bold text-purple-700">
+                        🎁 পুরস্কার অর্জিত
                       </div>
-                    );
-                  })()}
-                </motion.div>
-              </AnimatePresence>
-            </div>
-          )}
+                      <p className="text-purple-700">
+                        আপনার ব্যক্তিত্ব প্রোফাইল তৈরি হয়েছে!
+                      </p>
+                    </div>
 
-          {/* Completion Screen */}
-          {quizCompleted && (
-            <div className="text-center space-y-6">
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{
-                  type: "spring",
-                  stiffness: 260,
-                  damping: 20,
-                }}
-                className="w-28 h-28 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"
-              >
-                <svg
-                  className="w-16 h-16 text-green-600"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
+                    <p className="text-gray-600">
+                      আমাদের AI আপনার উত্তর বিশ্লেষণ করতে এবং আপনার পারফেক্ট
+                      ম্যাচ খুঁজে বের করতে প্রস্তুত।
+                    </p>
+
+                    {submissionError && (
+                      <div className="py-2 px-4 bg-red-50 text-red-600 rounded-lg mt-4">
+                        {submissionError}
+                      </div>
+                    )}
+
+                    <div className="py-6 flex flex-col sm:flex-row gap-4 justify-center">
+                      <button
+                        onClick={submitQuiz}
+                        disabled={isSubmitting}
+                        className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white px-10 py-4 rounded-full font-bold text-xl transition-all transform hover:scale-105"
+                      >
+                        {isSubmitting ? "প্রসেসিং..." : "আপনার ম্যাচগুলি দেখুন"}
+                      </button>
+
+                      <button
+                        onClick={restartQuiz}
+                        disabled={isSubmitting}
+                        className="bg-white border-2 border-purple-600 text-purple-600 hover:bg-purple-50 px-10 py-4 rounded-full font-bold text-xl transition-all transform hover:scale-105"
+                      >
+                        কুইজ পুনরায় শুরু করুন
+                      </button>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+
+              {/* Celebration overlay */}
+              {showCelebration && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 flex items-center justify-center pointer-events-none"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 50 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5 }}
-              >
-                <h4 className="text-2xl font-semibold">
-                  অভিনন্দন! কুইজ সম্পূর্ণ হয়েছে
-                </h4>
-
-                <p className="text-gray-600 mt-4">
-                  আপনি সফলভাবে {points} পয়েন্ট অর্জন করেছেন!
-                </p>
-
-                <div className="bg-purple-50 p-4 rounded-lg mt-4 mb-6 inline-block">
-                  <div className="text-2xl font-bold text-purple-700">
-                    🎁 পুরস্কার অর্জিত
-                  </div>
-                  <p className="text-purple-700">
-                    আপনার ব্যক্তিত্ব প্রোফাইল তৈরি হয়েছে!
-                  </p>
-                </div>
-
-                <p className="text-gray-600">
-                  আমাদের AI আপনার উত্তর বিশ্লেষণ করতে এবং আপনার পারফেক্ট ম্যাচ
-                  খুঁজে বের করতে প্রস্তুত।
-                </p>
-
-                {submissionError && (
-                  <div className="py-2 px-4 bg-red-50 text-red-600 rounded-lg mt-4">
-                    {submissionError}
-                  </div>
-                )}
-
-                <div className="py-6 flex flex-col sm:flex-row gap-4 justify-center">
-                  <button
-                    onClick={navigateToMatches}
-                    disabled={isSubmitting}
-                    className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white px-10 py-4 rounded-full font-bold text-xl transition-all transform hover:scale-105"
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", damping: 8 }}
+                    className="bg-purple-600 text-white font-bold text-2xl px-8 py-4 rounded-xl"
                   >
-                    {isSubmitting ? "প্রসেসিং..." : "আপনার ম্যাচগুলি দেখুন"}
-                  </button>
+                    +{streakCount % 5 === 0 ? "20" : "10"} পয়েন্ট!
+                  </motion.div>
+                </motion.div>
+              )}
+            </div>
 
-                  <button
-                    onClick={restartQuiz}
-                    disabled={isSubmitting}
-                    className="bg-white border-2 border-purple-600 text-purple-600 hover:bg-purple-50 px-10 py-4 rounded-full font-bold text-xl transition-all transform hover:scale-105"
-                  >
-                    কুইজ পুনরায় শুরু করুন
-                  </button>
+            {/* Modal Footer */}
+            {quizStarted && !quizCompleted && (
+              <div className="p-6 border-t border-gray-200 flex justify-between sticky bottom-0 bg-white z-10">
+                <button
+                  onClick={prevQuestion}
+                  className={`px-5 py-2 rounded-full font-medium ${
+                    currentQuestion === 0
+                      ? "text-gray-400 cursor-not-allowed"
+                      : "text-purple-600 hover:bg-purple-50"
+                  }`}
+                  disabled={currentQuestion === 0}
+                >
+                  পেছনে
+                </button>
+                <div className="text-gray-500">
+                  {currentQuestion + 1} / {getVisibleQuestions().length} প্রশ্ন
                 </div>
-              </motion.div>
-            </div>
-          )}
-
-          {/* Celebration overlay */}
-          {showCelebration && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 flex items-center justify-center pointer-events-none"
-            >
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", damping: 8 }}
-                className="bg-purple-600 text-white font-bold text-2xl px-8 py-4 rounded-xl"
-              >
-                +{streakCount % 5 === 0 ? "20" : "10"} পয়েন্ট!
-              </motion.div>
-            </motion.div>
-          )}
-        </div>
-
-        {/* Modal Footer */}
-        {quizStarted && !quizCompleted && (
-          <div className="p-6 border-t border-gray-200 flex justify-between">
-            <button
-              onClick={prevQuestion}
-              className={`px-5 py-2 rounded-full font-medium ${
-                currentQuestion === 0
-                  ? "text-gray-400 cursor-not-allowed"
-                  : "text-purple-600 hover:bg-purple-50"
-              }`}
-              disabled={currentQuestion === 0}
-            >
-              পেছনে
-            </button>
-            <div className="text-gray-500">
-              {currentQuestion + 1} / {getVisibleQuestions().length} প্রশ্ন
-            </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </>
   );
 }

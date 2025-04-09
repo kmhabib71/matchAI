@@ -63,14 +63,14 @@ export default function Profile() {
     resolver: zodResolver(profileSchema),
     defaultValues: {
       name: "",
-      age: 18,
+      age: 0,
       gender: "",
       orientation: "",
       location: "",
       relationshipGoals: "Casual",
       personalityType: "",
       preferences: {
-        minAge: 18,
+        minAge: 0,
         maxAge: 100,
         distance: 50,
         lifestyle: {

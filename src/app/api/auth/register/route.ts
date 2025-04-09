@@ -8,7 +8,7 @@ const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Invalid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
-  age: z.number().min(18, "You must be at least 18 years old"),
+  age: z.number().min(0, "You must be at least 18 years old"),
   gender: z.string(),
   orientation: z.string(),
   location: z.string(),
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
       },
       relationshipGoals,
       preferences: {
-        minAge: 18,
+        minAge: 0,
         maxAge: 100,
         distance: 50,
         lifestyle: {

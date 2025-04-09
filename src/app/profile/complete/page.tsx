@@ -35,7 +35,7 @@ export default function ProfileCompletePage() {
   } = useForm<ProfileCompletionFormData>({
     resolver: zodResolver(profileCompletionSchema),
     defaultValues: {
-      age: 18,
+      age: 0,
       gender: "",
       orientation: "",
       location: "",

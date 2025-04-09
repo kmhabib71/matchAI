@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { dbConnect } from "@/lib/dbConnect";
 import User from "@/models/User";
+import mongoose from "mongoose";
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,29 +21,59 @@ export async function GET(request: NextRequest) {
     // Connect to the database
     await dbConnect();
 
-    // Find the user by their email
-    const user = await User.findOne({ email: session.user.email });
+    // Rather than using Mongoose's schema which might have projection issues with nested fields,
+    // directly query the MongoDB collection to get the raw user document
+    const db = mongoose.connection.db;
+    if (!db) {
+      return NextResponse.json(
+        { error: "Database connection error" },
+        { status: 500 }
+      );
+    }
 
-    if (!user) {
+    const usersCollection = db.collection("users");
+    const rawUser = await usersCollection.findOne({
+      email: session.user.email,
+    });
+
+    if (!rawUser) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
     // Calculate matches viewed from previousMatches array
-    const matchesViewed = user.previousMatches?.length || 0;
+    const matchesViewed = rawUser.previousMatches?.length || 0;
 
-    // Convert the Mongoose document to a plain JavaScript object
-    const userObject = user.toObject() as any;
+    // Create a new user object without sensitive fields
+    const userObject: any = { ...rawUser };
 
     // Remove sensitive fields
     if (userObject.password) delete userObject.password;
     if (userObject.__v !== undefined) delete userObject.__v;
 
+    // Convert MongoDB ObjectIds to strings for JSON serialization
+    if (userObject._id) {
+      userObject._id = userObject._id.toString();
+    }
+
     // Add computed fields for backward compatibility
     userObject.statistics = {
       matchesViewed: matchesViewed,
-      conversationsStarted: user.interactions?.messagesSent || 0,
-      profileCompleteness: user.profileCompleted ? 100 : 0,
+      conversationsStarted: rawUser.interactions?.messagesSent || 0,
+      profileCompleteness: rawUser.profileCompleted ? 100 : 0,
     };
+
+    // Ensure personalityQuiz structure is complete
+    if (userObject.personalityQuiz) {
+      // Make sure answers is not undefined or null
+      if (!userObject.personalityQuiz.answers) {
+        userObject.personalityQuiz.answers = {};
+      }
+
+      // Make sure other fields exist
+      if (!userObject.personalityQuiz.traits) {
+        userObject.personalityQuiz.traits = [];
+      }
+    }
 
     // Ensure previousMatches is always an array
     if (!userObject.previousMatches) {

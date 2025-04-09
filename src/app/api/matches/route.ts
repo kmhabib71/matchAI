@@ -30,7 +30,8 @@ async function getUserFromToken(req: NextRequest) {
       id?: string;
       email?: string;
     };
-
+    console.log("decodedd is: ", decoded);
+    debugger;
     // Check if we have a valid user ID
     const userId = decoded.userId || decoded.id;
     if (!userId) {
@@ -41,12 +42,14 @@ async function getUserFromToken(req: NextRequest) {
     // Find the user in the database
     await dbConnect();
     const user = await User.findById(userId);
-
+    console.log("userr is: ", user);
+    debugger;
     if (!user) {
       console.log(`User with ID ${userId} not found`);
       return null;
     }
-
+    console.log("user is: ", user);
+    debugger;
     return user;
   } catch (error) {
     console.error("Token verification error:", error);
