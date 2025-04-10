@@ -368,6 +368,7 @@ export default function Matches() {
       try {
         // API call to get matches from database
         // The API should now track viewed matches server-side
+        debugger;
         const response = await fetch(
           `/api/matches?list=true${fromQuiz ? "&fromQuiz=true" : ""}`
         );
@@ -376,10 +377,11 @@ export default function Matches() {
           const errorData = await response.json();
           throw new Error(errorData.error || "Failed to fetch matches");
         }
-
+        debugger;
         const data = await response.json();
         console.log("match data is: ", data);
-
+        debugger;
+        return;
         if (!data.matches || data.matches.length === 0) {
           // Only show quiz if we have no matches AND no personality data
           if (!personalityData) {

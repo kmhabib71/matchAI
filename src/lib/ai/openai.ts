@@ -21,6 +21,13 @@ export async function analyzeTopMatches(
   currentUser: IUser,
   candidates: Array<{ user: IUser; score: CompatibilityScore }>
 ): Promise<MatchResult[]> {
+  // Temporarily return early to avoid OpenAI API calls during testing
+  return candidates.slice(0, 3).map(({ user, score }) => ({
+    userId: user._id?.toString() || "",
+    score: score.score,
+    reason: generateFallbackReason(currentUser, user, score),
+  }));
+
   try {
     // Extract personality traits for all users
     const currentUserTraits = getPersonalityTraits(currentUser);

@@ -219,7 +219,7 @@ export default function PersonalityQuiz({
       question: "আমি কি নতুন রেসিপি ট্রাই করতে মজা পাই?",
       options: [
         "১: একদম না 😒",
-        "২: না 🙄",
+        "২: না 😕",
         "৩: মাঝামাঝি 😐",
         "৪: হ্যাঁ 😊",
         "৫: খুবই হ্যাঁ 😃",
@@ -250,7 +250,7 @@ export default function PersonalityQuiz({
         "২: না 🙂",
         "৩: মাঝামাঝি 😐",
         "৪: হ্যাঁ 😄",
-        "৫: খুবই হ্যাঁ 🥳",
+        "৫: খুবই হ্যাঁ 🎉",
       ],
       type: "radio",
       description:
@@ -318,7 +318,7 @@ export default function PersonalityQuiz({
       id: 8,
       question: "গভীর কথা হলে আমি কি পালাতে চাই?",
       options: [
-        "১: একদম না 🤗",
+        "১: একদম না 😃",
         "২: না 😊",
         "৩: মাঝামাঝি 😐",
         "৪: হ্যাঁ 😓",
@@ -338,7 +338,7 @@ export default function PersonalityQuiz({
         "২: না 🙂",
         "৩: মাঝামাঝি 😐",
         "৪: হ্যাঁ 😊",
-        "৫: খুবই হ্যাঁ 🥰",
+        "৫: খুবই হ্যাঁ 😍",
       ],
       type: "radio",
       description:
@@ -750,7 +750,7 @@ export default function PersonalityQuiz({
 
     "মনে নেই": "Don't care",
     "১: একদম না 😒": "1: Strongly disagree",
-    "২: না 🙄": "2: Disagree",
+    "২: না 😕": "2: Disagree",
     "৩: মাঝামাঝি 😐": "3: Neutral",
     "৪: হ্যাঁ 😊": "4: Agree",
     "৫: খুবই হ্যাঁ 😃": "5: Strongly agree",
@@ -762,7 +762,7 @@ export default function PersonalityQuiz({
     "১: একদম না 😔": "1: Strongly disagree",
     "২: না 🙂": "2: Disagree",
     "৪: হ্যাঁ 😄": "4: Agree",
-    "৫: খুবই হ্যাঁ 🥳": "5: Strongly agree",
+    "৫: খুবই হ্যাঁ 🎉": "5: Strongly agree",
     "১: একদম না 😠": "1: Strongly disagree",
     "২: না 😒": "2: Disagree",
     "৪: হ্যাঁ 🙂": "4: Agree",
@@ -773,11 +773,11 @@ export default function PersonalityQuiz({
     "৫: খুবই হ্যাঁ 😰": "5: Strongly agree",
     "১: একদম না 😣": "1: Strongly disagree",
     "২: না 😔": "2: Disagree",
-    "১: একদম না 🤗": "1: Strongly disagree",
+    "১: একদম না 😃": "1: Strongly disagree",
     "২: না 😊": "2: Disagree",
     "৪: হ্যাঁ 😓": "4: Agree",
     "৫: খুবই হ্যাঁ 😅": "5: Strongly agree",
-    "৫: খুবই হ্যাঁ 🥰": "5: Strongly agree",
+    "৫: খুবই হ্যাঁ 😍": "5: Strongly agree",
     "৫: খুবই হ্যাঁ 😖": "5: Strongly agree",
   };
 

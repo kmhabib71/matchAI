@@ -340,6 +340,7 @@ export function calculateCompatibilityScore(
   currentUser: IUser,
   candidate: IUser
 ): CompatibilityScore {
+  console.log("Calculating compatibility for candidate:", candidate);
   const personalityScore = calculatePersonalityScore(currentUser, candidate);
   const attachmentScore = calculateAttachmentScore(currentUser, candidate);
   const valuesScore = calculateValuesScore(currentUser, candidate);
@@ -357,14 +358,23 @@ export function calculateCompatibilityScore(
       ? 100
       : 70;
 
-  // Updated weights
-  const weightedScore =
+  // Calculate base weighted score
+  let weightedScore =
     personalityScore * 0.4 + // Personality: 40%
     attachmentScore * 0.2 + // Attachment: 20%
     valuesScore * 0.15 + // Values: 15%
     hobbiesScore * 0.1 + // Hobbies: 10%
     preferencesScore * 0.075 + // Preferences: 7.5%
     cityScore * 0.075; // City: 7.5%
+
+  // Apply demographics score reduction if less than 60%
+  // "If <60%, reduces total score by ×0.2"
+  if (demographicsScore < 60) {
+    console.log(
+      `Demographics score ${demographicsScore} < 60%, reducing overall score by factor of 0.2`
+    );
+    weightedScore *= 0.2;
+  }
 
   return {
     userId: candidate._id?.toString() || "",
@@ -385,6 +395,9 @@ export function findTop5Soulmates(
   currentUser: IUser,
   candidates: IUser[]
 ): CompatibilityScore[] {
+  console.log("Finding soulmates for user:", currentUser);
+  console.log("From candidates:", candidates);
+
   const scores = candidates.map((candidate) => {
     const score = calculateCompatibilityScore(currentUser, candidate);
 
@@ -403,7 +416,9 @@ export function findTop5Soulmates(
     return score;
   });
 
-  return scores.sort((a, b) => b.score - a.score).slice(0, 5);
+  const topMatches = scores.sort((a, b) => b.score - a.score).slice(0, 5);
+  console.log("Selected top 5 matches:", topMatches);
+  return topMatches;
 }
 
 // Function to generate a match explanation (placeholder - will be replaced by OpenAI function)
