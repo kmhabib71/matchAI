@@ -11,6 +11,11 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Simple in-memory cache for match analysis results
+// Key: currentUserId + sortedCandidateIds, Value: analysis result
+const matchAnalysisCache = new Map<string, MatchResult[]>();
+const CACHE_MAX_SIZE = 100; // Limit cache size to prevent memory issues
+
 /**
  * Generate detailed match explanations using OpenAI
  * @param currentUser The user looking for matches
@@ -18,43 +23,78 @@ const openai = new OpenAI({
  * @returns Promise<Array<MatchResult>> Top 3 matches with detailed explanations
  */
 export async function analyzeTopMatches(
-  currentUser: IUser,
-  candidates: Array<{ user: IUser; score: CompatibilityScore }>
+  currentUser: any,
+  candidates: Array<{ user: any; score: CompatibilityScore }>
 ): Promise<MatchResult[]> {
-  // Temporarily return early to avoid OpenAI API calls during testing
-  return candidates.slice(0, 3).map(({ user, score }) => ({
-    userId: user._id?.toString() || "",
-    score: score.score,
-    reason: generateFallbackReason(currentUser, user, score),
-  }));
-
   try {
-    // Extract personality traits for all users
-    const currentUserTraits = getPersonalityTraits(currentUser);
-    const candidateDetails = candidates.map(({ user, score }) => {
-      const traits = getPersonalityTraits(user);
+    // Create a cache key using user ID and sorted candidate IDs
+    const currentUserId = currentUser._id?.toString() || "";
+    const candidateIds = candidates
+      .map(({ user }) => user._id?.toString() || "")
+      .sort()
+      .join("-");
+    const cacheKey = `${currentUserId}-${candidateIds}`;
+
+    // Check cache first
+    if (matchAnalysisCache.has(cacheKey)) {
+      console.log("Using cached match analysis result");
+      return matchAnalysisCache.get(cacheKey)!;
+    }
+
+    // Limit to top 3 candidates to reduce token usage
+    const top3Candidates = candidates.slice(0, 3);
+
+    // Extract only necessary information to reduce token usage
+    const currentUserTraits = getPersonalityTraits(
+      currentUser.personalityQuiz?.answers || {}
+    );
+    const candidateDetails = top3Candidates.map(({ user, score }) => {
       const userAnswers = user.personalityQuiz?.answers || {};
+      const traits = getPersonalityTraits(userAnswers);
 
       return {
         userId: user._id?.toString() || "",
         score: score.score,
         name: userAnswers.profile_1 || "User",
-        traits,
-        hobbies: (userAnswers.profile_12 || "").split(",").map((h) => h.trim()),
+        // Just include trait values without descriptions to save tokens
+        traits: {
+          openness: traits.openness,
+          conscientiousness: traits.conscientiousness,
+          extraversion: traits.extraversion,
+          agreeableness: traits.agreeableness,
+          neuroticism: traits.neuroticism,
+          secureAttachment: traits.secureAttachment,
+          anxiousAttachment: traits.anxiousAttachment,
+        },
+        hobbies: (userAnswers.profile_12 || "")
+          .split(",")
+          .map((h: string) => h.trim()),
         profession: userAnswers.profile_5 || "",
         education: userAnswers.profile_7 || "",
         age: calculateAge(userAnswers.profile_3 || "2000"),
-        matchDetails: score.matchDetails,
+        matchDetails: {
+          personalityScore: score.matchDetails?.personalityScore || 0,
+          attachmentScore: score.matchDetails?.attachmentScore || 0,
+          hobbiesScore: score.matchDetails?.hobbiesScore || 0,
+        },
       };
     });
 
-    // Current user details for the prompt
+    // Current user details for the prompt - only essential info
     const userDetails = {
-      name: currentUser.personalityQuiz?.answers?.profile_1 || "You",
-      traits: currentUserTraits,
+      name: currentUser.personalityQuiz?.answers?.profile_1 || "User",
+      traits: {
+        openness: currentUserTraits.openness,
+        conscientiousness: currentUserTraits.conscientiousness,
+        extraversion: currentUserTraits.extraversion,
+        agreeableness: currentUserTraits.agreeableness,
+        neuroticism: currentUserTraits.neuroticism,
+        secureAttachment: currentUserTraits.secureAttachment,
+        anxiousAttachment: currentUserTraits.anxiousAttachment,
+      },
       hobbies: (currentUser.personalityQuiz?.answers?.profile_12 || "")
         .split(",")
-        .map((h) => h.trim()),
+        .map((h: string) => h.trim()),
       profession: currentUser.personalityQuiz?.answers?.profile_5 || "",
       education: currentUser.personalityQuiz?.answers?.profile_7 || "",
       age: calculateAge(
@@ -62,27 +102,25 @@ export async function analyzeTopMatches(
       ),
     };
 
-    // Prepare the prompt for OpenAI
-    const prompt = generateMatchAnalysisPrompt(userDetails, candidateDetails);
+    // Prepare the prompt - more concise
+    const prompt = generateOptimizedPrompt(userDetails, candidateDetails);
 
     // Make API call to OpenAI
     const response = await openai.chat.completions.create({
-      model: "gpt-4-turbo", // Use the most advanced model available
+      model: "gpt-3.5-turbo-0125", // Use a more cost-effective model
       messages: [
         {
           role: "system",
-          content: `You are an expert matchmaker and relationship psychologist. Your task is to analyze 
-          compatibility between potential romantic partners based on their personality traits, 
-          attachment styles, values, and interests. Your analysis should be insightful, accurate, 
-          and personalized.`,
+          content:
+            "You are an expert matchmaker analyzing compatibility between potential partners based on their personality traits, attachment styles, and interests. Provide concise, insightful match explanations.",
         },
         {
           role: "user",
           content: prompt,
         },
       ],
-      temperature: 0.7,
-      max_tokens: 1500,
+      temperature: 0.5,
+      max_tokens: 800, // Reduced token limit
       response_format: { type: "json_object" },
     });
 
@@ -94,15 +132,34 @@ export async function analyzeTopMatches(
 
     const parsedResponse = JSON.parse(content);
 
-    // Extract the top 3 matches with reasons
-    const top3Matches = parsedResponse.matches.map((match: any) => ({
-      userId: match.userId,
-      score:
-        candidateDetails.find((c) => c.userId === match.userId)?.score || 0,
-      reason: match.reason,
-    }));
+    // Extract the matches with reasons
+    const topMatches = top3Candidates.map(({ user, score }, index) => {
+      const userId = user._id?.toString() || "";
+      const matchResponse = parsedResponse.matches.find(
+        (m: any) => m.userId === userId
+      );
 
-    return top3Matches;
+      return {
+        userId,
+        score: score.score,
+        reason:
+          matchResponse?.reason ||
+          generateFallbackReason(currentUser, user, score),
+      };
+    });
+
+    // Store in cache
+    matchAnalysisCache.set(cacheKey, topMatches);
+
+    // Maintain cache size limit
+    if (matchAnalysisCache.size > CACHE_MAX_SIZE) {
+      const oldestKey = matchAnalysisCache.keys().next().value;
+      if (oldestKey) {
+        matchAnalysisCache.delete(oldestKey);
+      }
+    }
+
+    return topMatches;
   } catch (error) {
     console.error("Error in OpenAI match analysis:", error);
 
@@ -122,39 +179,12 @@ function calculateAge(birthYear: string): number {
   return isNaN(yearNum) ? 25 : currentYear - yearNum;
 }
 
-// Generate a detailed prompt for OpenAI
-function generateMatchAnalysisPrompt(
-  currentUser: any,
-  candidates: any[]
-): string {
-  // Trait descriptions for better context
-  const traitDescriptions = {
-    openness: "Openness to new experiences, creativity, and curiosity",
-    conscientiousness: "Organization, responsibility, and reliability",
-    extraversion: "Sociability, assertiveness, and energy in social settings",
-    agreeableness: "Kindness, cooperation, and consideration for others",
-    neuroticism: "Emotional sensitivity, anxiety, and stress response",
-    secureAttachment: "Comfort with intimacy and healthy independence",
-    anxiousAttachment: "Fear of abandonment and need for reassurance",
-    avoidantAttachment: "Difficulty with emotional intimacy and independence",
-    familyValues: "Importance of family and desire for children",
-    careerValues: "Focus on professional growth and career success",
-    travelValues: "Importance of travel and exploration",
-    moneyValues: "Financial values and money management",
-  };
-
-  // Format trait data for better readability
-  const formatTraits = (traits: any) => {
-    return Object.entries(traits)
-      .map(([trait, value]) => {
-        const description = (traitDescriptions as any)[trait] || "";
-        return `- ${trait}: ${value}/5 (${description})`;
-      })
-      .join("\n");
-  };
-
+// Generate a concise, token-efficient prompt for OpenAI
+function generateOptimizedPrompt(currentUser: any, candidates: any[]): string {
   return `
-Please analyze the compatibility between the current user and 5 potential matches, then select the top 3 most compatible matches with detailed explanations.
+Analyze compatibility between the current user and ${
+    candidates.length
+  } potential matches, then provide reasons why they are compatible.
 
 CURRENT USER:
 Name: ${currentUser.name}
@@ -162,11 +192,15 @@ Age: ${currentUser.age}
 Profession: ${currentUser.profession}
 Education: ${currentUser.education}
 Hobbies: ${currentUser.hobbies.join(", ")}
+Traits: Openness(${currentUser.traits.openness}/5), Conscientiousness(${
+    currentUser.traits.conscientiousness
+  }/5), Extraversion(${currentUser.traits.extraversion}/5), Agreeableness(${
+    currentUser.traits.agreeableness
+  }/5), Neuroticism(${currentUser.traits.neuroticism}/5), SecureAttachment(${
+    currentUser.traits.secureAttachment
+  }/5), AnxiousAttachment(${currentUser.traits.anxiousAttachment}/5)
 
-Personality Traits:
-${formatTraits(currentUser.traits)}
-
-POTENTIAL MATCHES:
+MATCHES:
 ${candidates
   .map(
     (candidate) => `
@@ -175,52 +209,45 @@ Name: ${candidate.name}
 Age: ${candidate.age}
 Profession: ${candidate.profession}
 Education: ${candidate.education}
-Compatibility Score: ${candidate.score.toFixed(1)}%
-- Personality Score: ${candidate.matchDetails?.personalityScore.toFixed(1)}%
-- Attachment Score: ${candidate.matchDetails?.attachmentScore.toFixed(1)}%
-- Values Score: ${candidate.matchDetails?.valuesScore.toFixed(1)}%
-- Hobbies Score: ${candidate.matchDetails?.hobbiesScore.toFixed(1)}%
+Compatibility: ${candidate.score.toFixed(
+      2
+    )}% (Personality: ${candidate.matchDetails?.personalityScore.toFixed(
+      2
+    )}%, Attachment: ${candidate.matchDetails?.attachmentScore.toFixed(
+      2
+    )}%, Hobbies: ${candidate.matchDetails?.hobbiesScore.toFixed(2)}%)
 Hobbies: ${candidate.hobbies.join(", ")}
-
-Personality Traits:
-${formatTraits(candidate.traits)}
+Traits: Openness(${candidate.traits.openness}/5), Conscientiousness(${
+      candidate.traits.conscientiousness
+    }/5), Extraversion(${candidate.traits.extraversion}/5), Agreeableness(${
+      candidate.traits.agreeableness
+    }/5), Neuroticism(${candidate.traits.neuroticism}/5), SecureAttachment(${
+      candidate.traits.secureAttachment
+    }/5), AnxiousAttachment(${candidate.traits.anxiousAttachment}/5)
 `
   )
   .join("\n")}
 
-INSTRUCTIONS:
-1. Analyze the psychological compatibility between the current user and each of the 5 potential matches.
-2. Consider personality trait matching, attachment style compatibility, shared values, and common interests.
-3. Select the top 3 most compatible matches.
-4. For each of the top 3 matches, provide a detailed paragraph explaining why they would be great soulmates for the current user.
-5. Focus on how their personalities complement each other, attachment style dynamics, shared values, and interests.
-6. Be specific about which traits create harmony (e.g., complementary extraversion/introversion, similar conscientiousness levels).
-7. IMPORTANT: When evaluating matches, prioritize personality compatibility over location. A strong personality match from a different city should be considered more valuable than a weaker personality match from the same city. Explain how their personality traits and values create a foundation that can overcome geographical distance.
+For each match, provide ONE concise paragraph (60-80 words) explaining compatibility, focusing on:
+1. How their personalities complement each other
+2. Attachment style dynamics
+3. Shared interests or values
+4. Why they would be good soulmates
 
-Please return your analysis in JSON format as follows:
+Return in JSON format:
 {
   "matches": [
-    {
-      "userId": "match_id_1",
-      "reason": "Detailed paragraph explaining compatibility..."
-    },
-    {
-      "userId": "match_id_2",
-      "reason": "Detailed paragraph explaining compatibility..."
-    },
-    {
-      "userId": "match_id_3",
-      "reason": "Detailed paragraph explaining compatibility..."
-    }
+    {"userId": "match1_id", "reason": "concise paragraph"},
+    {"userId": "match2_id", "reason": "concise paragraph"},
+    {"userId": "match3_id", "reason": "concise paragraph"}
   ]
-}
-`;
+}`;
 }
 
 // Generate a fallback reason if OpenAI call fails
 function generateFallbackReason(
-  currentUser: IUser,
-  candidate: IUser,
+  currentUser: any,
+  candidate: any,
   score: CompatibilityScore
 ): string {
   const candidateAnswers = candidate.personalityQuiz?.answers || {};
@@ -228,8 +255,8 @@ function generateFallbackReason(
 
   // Extract key information
   const candidateName = candidateAnswers.profile_1 || "This person";
-  const currentUserTraits = getPersonalityTraits(currentUser);
-  const candidateTraits = getPersonalityTraits(candidate);
+  const currentUserTraits = getPersonalityTraits(userAnswers);
+  const candidateTraits = getPersonalityTraits(candidateAnswers);
 
   // Generate a basic compatibility explanation
   let reason = `${candidateName} appears to be a strong match with a compatibility score of ${score.score.toFixed(
@@ -258,11 +285,13 @@ function generateFallbackReason(
   // Add hobbies insight
   const userHobbies = (userAnswers.profile_12 || "")
     .split(",")
-    .map((h) => h.trim().toLowerCase());
+    .map((h: string) => h.trim().toLowerCase());
   const candidateHobbies = (candidateAnswers.profile_12 || "")
     .split(",")
-    .map((h) => h.trim().toLowerCase());
-  const sharedHobbies = userHobbies.filter((h) => candidateHobbies.includes(h));
+    .map((h: string) => h.trim().toLowerCase());
+  const sharedHobbies = userHobbies.filter((h: string) =>
+    candidateHobbies.includes(h)
+  );
 
   if (sharedHobbies.length > 0) {
     reason += `You share common interests in ${sharedHobbies.join(

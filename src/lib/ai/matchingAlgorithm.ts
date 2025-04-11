@@ -145,14 +145,24 @@ function calculateHobbiesScore(currentUser: IUser, candidate: IUser): number {
     return 0;
   }
 
-  // Calculate Jaccard similarity (intersection / union)
-  const intersection = currentUserHobbies.filter((hobby) =>
-    candidateHobbies.includes(hobby)
-  ).length;
+  // More lenient matching - check if any hobby words contain each other
+  let sharedCount = 0;
+  for (const userHobby of currentUserHobbies) {
+    for (const candidateHobby of candidateHobbies) {
+      // Check for word overlap or if one contains the other
+      if (
+        userHobby === candidateHobby ||
+        userHobby.includes(candidateHobby) ||
+        candidateHobby.includes(userHobby)
+      ) {
+        sharedCount++;
+        break; // Only count once per user hobby
+      }
+    }
+  }
 
-  const union = new Set([...currentUserHobbies, ...candidateHobbies]).size;
-
-  return (intersection / union) * 100;
+  // Calculate similarity as percentage of user's hobbies that match
+  return (sharedCount / Math.max(currentUserHobbies.length, 1)) * 100;
 }
 
 // Calculate personality compatibility (Big Five)
@@ -296,11 +306,22 @@ export function calculatePreferencesScore(
 
   // Age range matching
   const userAgeRange = currentUserPrefs.preferences_1;
-  const candidateAge = parseInt(candidateProfile.profile_3);
-  if (userAgeRange && candidateAge) {
-    const [minAge, maxAge] = userAgeRange.split("-").map(Number);
-    if (candidateAge >= minAge && candidateAge <= maxAge) {
-      score += 1;
+  const candidateAge = calculateAge(candidateProfile.profile_3 || "2000");
+
+  if (userAgeRange && !isNaN(candidateAge)) {
+    // Check if age range is a simple range (e.g., "23-28")
+    if (userAgeRange.includes("-")) {
+      const [minAge, maxAge] = userAgeRange.split("-").map(Number);
+      if (candidateAge >= minAge && candidateAge <= maxAge) {
+        score += 1;
+      }
+    }
+    // Check if age range is "45+" format
+    else if (userAgeRange.includes("+")) {
+      const minAge = parseInt(userAgeRange.replace("+", ""), 10);
+      if (candidateAge >= minAge) {
+        score += 1;
+      }
     }
   }
 
@@ -354,18 +375,18 @@ export function calculateCompatibilityScore(
   const cityScore =
     userCity === candidateCity
       ? 100
-      : calculatePersonalityScore(currentUser, candidate) >= 90
+      : calculatePersonalityScore(currentUser, candidate) >= 80
       ? 100
       : 70;
 
-  // Calculate base weighted score
+  // Calculate base weighted score with increased weight for personality and attachment
   let weightedScore =
-    personalityScore * 0.4 + // Personality: 40%
-    attachmentScore * 0.2 + // Attachment: 20%
-    valuesScore * 0.15 + // Values: 15%
-    hobbiesScore * 0.1 + // Hobbies: 10%
-    preferencesScore * 0.075 + // Preferences: 7.5%
-    cityScore * 0.075; // City: 7.5%
+    personalityScore * 0.45 + // Personality: increased from 40% to 45%
+    attachmentScore * 0.25 + // Attachment: increased from 20% to 25%
+    valuesScore * 0.1 + // Values: decreased from 15% to 10%
+    hobbiesScore * 0.1 + // Hobbies: unchanged at 10%
+    preferencesScore * 0.05 + // Preferences: decreased from 7.5% to 5%
+    cityScore * 0.05; // City: decreased from 7.5% to 5%
 
   // Apply demographics score reduction if less than 60%
   // "If <60%, reduces total score by ×0.2"
@@ -398,16 +419,75 @@ export function findTop5Soulmates(
   console.log("Finding soulmates for user:", currentUser);
   console.log("From candidates:", candidates);
 
-  const scores = candidates.map((candidate) => {
+  // Get age information
+  const currentUserAge = calculateAge(
+    currentUser.personalityQuiz?.answers?.profile_3 || "2000"
+  );
+  const currentUserPrefs = currentUser.personalityQuiz?.answers || {};
+  const userAgeRange = currentUserPrefs.preferences_1 || "";
+
+  // Filter candidates by age first - apply a strict age filter
+  const filteredCandidates = candidates.filter((candidate) => {
+    const candidateAge = calculateAge(
+      candidate.personalityQuiz?.answers?.profile_3 || "2000"
+    );
+    const candidatePrefs = candidate.personalityQuiz?.answers || {};
+    const candidateAgeRange = candidatePrefs.preferences_1 || "";
+
+    // Check if user is within candidate's preferred age range
+    let userFitsCandidatePreference = true;
+    if (candidateAgeRange.includes("-")) {
+      const [minAge, maxAge] = candidateAgeRange.split("-").map(Number);
+      if (currentUserAge < minAge || currentUserAge > maxAge) {
+        userFitsCandidatePreference = false;
+      }
+    } else if (candidateAgeRange.includes("+")) {
+      const minAge = parseInt(candidateAgeRange.replace("+", ""), 10);
+      if (currentUserAge < minAge) {
+        userFitsCandidatePreference = false;
+      }
+    }
+
+    // Check if candidate is within user's preferred age range
+    let candidateFitsUserPreference = true;
+    if (userAgeRange.includes("-")) {
+      const [minAge, maxAge] = userAgeRange.split("-").map(Number);
+      if (candidateAge < minAge || candidateAge > maxAge) {
+        candidateFitsUserPreference = false;
+      }
+    } else if (userAgeRange.includes("+")) {
+      const minAge = parseInt(userAgeRange.replace("+", ""), 10);
+      if (candidateAge < minAge) {
+        candidateFitsUserPreference = false;
+      }
+    }
+
+    // Enforce a maximum age gap of 8 years regardless of preferences
+    const ageGap = Math.abs(currentUserAge - candidateAge);
+    const withinMaxAgeGap = ageGap <= 8;
+
+    // Both must match: user fits candidate's preference AND candidate fits user's preference AND within 8-year gap
+    return (
+      userFitsCandidatePreference &&
+      candidateFitsUserPreference &&
+      withinMaxAgeGap
+    );
+  });
+
+  console.log(
+    `Filtered from ${candidates.length} to ${filteredCandidates.length} candidates based on age criteria`
+  );
+
+  const scores = filteredCandidates.map((candidate) => {
     const score = calculateCompatibilityScore(currentUser, candidate);
 
-    // Add bonus for perfect matches
+    // Add bonus for perfect matches - reduced threshold from 90% to 80%
     const allFieldsMatch =
       score.matchDetails!.demographicsScore === 100 &&
-      score.matchDetails!.preferencesScore === 100 &&
+      score.matchDetails!.preferencesScore >= 75 &&
       score.matchDetails!.hobbiesScore > 0 &&
-      score.matchDetails!.personalityScore >= 90 &&
-      score.matchDetails!.attachmentScore >= 90;
+      score.matchDetails!.personalityScore >= 80 &&
+      score.matchDetails!.attachmentScore >= 80;
 
     if (allFieldsMatch) {
       score.score += 10; // Add bonus for perfect matches
@@ -415,6 +495,32 @@ export function findTop5Soulmates(
 
     return score;
   });
+
+  // If we don't have enough filtered candidates, try with just the age gap filter
+  if (scores.length < 3) {
+    console.log(
+      "Not enough matches after strict filtering, applying just the age gap filter"
+    );
+
+    const justAgeGapFilteredCandidates = candidates.filter((candidate) => {
+      const candidateAge = calculateAge(
+        candidate.personalityQuiz?.answers?.profile_3 || "2000"
+      );
+      const ageGap = Math.abs(currentUserAge - candidateAge);
+      return ageGap <= 8;
+    });
+
+    const additionalScores = justAgeGapFilteredCandidates
+      .filter(
+        (c) =>
+          !filteredCandidates.some(
+            (fc) => fc._id?.toString() === c._id?.toString()
+          )
+      )
+      .map((candidate) => calculateCompatibilityScore(currentUser, candidate));
+
+    scores.push(...additionalScores);
+  }
 
   const topMatches = scores.sort((a, b) => b.score - a.score).slice(0, 5);
   console.log("Selected top 5 matches:", topMatches);

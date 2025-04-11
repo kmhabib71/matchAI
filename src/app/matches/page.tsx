@@ -1623,7 +1623,8 @@ export default function Matches() {
                       <div className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600 flex items-center">
                         <span className="mr-3 text-4xl">🌟</span>
                         <span>
-                          {currentMatch.compatibilityScore}% Compatible
+                          {currentMatch.compatibilityScore.toFixed(2)}%
+                          Compatible
                         </span>
                       </div>
                     </div>

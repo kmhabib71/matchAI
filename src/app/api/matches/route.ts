@@ -319,9 +319,11 @@ export async function GET(request: NextRequest) {
               email: 1,
               name: 1,
               gender: 1,
-              preliminaryScore: "$fallbackScore",
+              preliminaryScore: { $round: ["$fallbackScore", 2] },
               matchDetails: {
-                personalityScore: { $multiply: ["$fallbackScore", 100] },
+                personalityScore: {
+                  $round: [{ $multiply: ["$fallbackScore", 100] }, 2],
+                },
                 note: "Fallback match with relaxed criteria",
               },
             },
@@ -393,7 +395,7 @@ export async function GET(request: NextRequest) {
         );
 
         // Log score details
-        console.log("Match score:", match.preliminaryScore);
+        console.log("Match score:", match.preliminaryScore.toFixed(2));
         if (match.matchDetails) {
           console.log(
             "Score details:",
@@ -404,10 +406,10 @@ export async function GET(request: NextRequest) {
         console.log("----------------------\n");
       });
 
-      return NextResponse.json({
-        matches: candidateMatches,
-        total: candidateMatches.length,
-      });
+      // return NextResponse.json({
+      //   matches: candidateMatches,
+      //   total: candidateMatches.length,
+      // });
 
       // STEP 2: Refine with TypeScript algorithm to get top 5
       // Extract necessary information and calculate detailed compatibility scores
@@ -421,15 +423,15 @@ export async function GET(request: NextRequest) {
         })
       );
       console.log("candidatesWithFullData is: ", candidatesWithFullData);
-      return NextResponse.json({
-        matches: candidatesWithFullData,
-        total: candidatesWithFullData.length,
-      });
+      // return NextResponse.json({
+      //   matches: candidatesWithFullData,
+      //   total: candidatesWithFullData.length,
+      // });
       const top3Matches = await analyzeTopMatches(
         currentUser,
         candidatesWithFullData.filter((item) => item.user) as any
       );
-
+      console.log("top3Matches is: ", top3Matches);
       // Return the matches
       return NextResponse.json({
         matches: top3Matches,
@@ -1107,24 +1109,39 @@ function buildMatchingPipeline(currentUser: any, excludedUserIds: string[]) {
         name: 1,
         gender: 1,
         preliminaryScore: {
-          $add: [
-            { $multiply: ["$personalityMatchScore", 0.4] }, // Personality: 40%
-            { $multiply: ["$attachmentMatchScore", 0.2] }, // Attachment: 20%
-            { $multiply: ["$hobbiesScore", 0.15] }, // Hobbies: 15%
-            { $multiply: ["$educationScore", 0.1] }, // Education: 10%
-            { $multiply: ["$cityScore", 0.075] }, // City: 7.5%
-            { $multiply: ["$professionScore", 0.075] }, // Profession: 7.5%
-            "$fullMatchBonus", // Bonus: 10%
+          $round: [
+            {
+              $add: [
+                { $multiply: ["$personalityMatchScore", 0.4] }, // Personality: 40%
+                { $multiply: ["$attachmentMatchScore", 0.2] }, // Attachment: 20%
+                { $multiply: ["$hobbiesScore", 0.15] }, // Hobbies: 15%
+                { $multiply: ["$educationScore", 0.1] }, // Education: 10%
+                { $multiply: ["$cityScore", 0.075] }, // City: 7.5%
+                { $multiply: ["$professionScore", 0.075] }, // Profession: 7.5%
+                "$fullMatchBonus", // Bonus: 10%
+              ],
+            },
+            2,
           ],
         },
         matchDetails: {
-          personalityScore: { $multiply: ["$personalityMatchScore", 100] },
-          attachmentScore: { $multiply: ["$attachmentMatchScore", 100] },
-          hobbiesScore: { $multiply: ["$hobbiesScore", 100] },
-          educationScore: { $multiply: ["$educationScore", 100] },
-          cityScore: { $multiply: ["$cityScore", 100] },
-          professionScore: { $multiply: ["$professionScore", 100] },
-          fullMatchBonus: { $multiply: ["$fullMatchBonus", 100] },
+          personalityScore: {
+            $round: [{ $multiply: ["$personalityMatchScore", 100] }, 2],
+          },
+          attachmentScore: {
+            $round: [{ $multiply: ["$attachmentMatchScore", 100] }, 2],
+          },
+          hobbiesScore: { $round: [{ $multiply: ["$hobbiesScore", 100] }, 2] },
+          educationScore: {
+            $round: [{ $multiply: ["$educationScore", 100] }, 2],
+          },
+          cityScore: { $round: [{ $multiply: ["$cityScore", 100] }, 2] },
+          professionScore: {
+            $round: [{ $multiply: ["$professionScore", 100] }, 2],
+          },
+          fullMatchBonus: {
+            $round: [{ $multiply: ["$fullMatchBonus", 100] }, 2],
+          },
         },
       },
     },

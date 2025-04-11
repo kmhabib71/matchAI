@@ -496,7 +496,7 @@ export default function MatchDetail() {
               </div>
               <div>
                 <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                  {match.compatibilityScore}% Compatibility
+                  {match.compatibilityScore.toFixed(2)}% Compatibility
                 </h3>
               </div>
             </div>

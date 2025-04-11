@@ -120,7 +120,9 @@ const MatchCard: React.FC<MatchCardProps> = ({ match, onNextMatch }) => {
                 <div className="mt-1 relative pt-1">
                   <div className="overflow-hidden h-2 text-xs flex rounded bg-gray-200 dark:bg-gray-700">
                     <div
-                      style={{ width: `${match.compatibilityScore}%` }}
+                      style={{
+                        width: `${match.compatibilityScore.toFixed(2)}%`,
+                      }}
                       className={`shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center ${
                         match.compatibilityScore >= 80
                           ? "bg-green-500"
