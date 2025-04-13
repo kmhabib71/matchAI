@@ -6,102 +6,24 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import PersonalityQuiz from "@/components/PersonalityQuiz";
-interface Match {
-  _id: string;
-  userId: string;
-  name: string;
-  age: number;
-  location: {
-    city?: string;
-    country?: string;
-    coordinates?: number[];
-    type?: string;
-  };
-  profileImage: string;
-  personalityType?: string;
-  bio?: string;
-  interests?: string[];
-  gender: string;
-  orientation: string;
-  relationshipGoals?: string[];
-  compatibilityScore: number;
-  explanation?: string;
-  matchDate: string;
-  lastActive: string;
-  hasUnreadMessages?: boolean;
-  occupation?: string;
-  education?: string;
-  height?: string;
-  relationshipStatus?: string;
-  lookingFor?: string;
-  phoneNumber?: string;
-  email?: string;
-  address?: string;
-  socialProfiles?: {
-    instagram?: string;
-    facebook?: string;
-    twitter?: string;
-  };
-  compatibilityReasons?: string[];
-  sharedValues?: string[];
-  topTraits?: string[];
-  personalityQuiz?: {
-    answers?: {
-      profile_1?: string;
-      profile_2?: string;
-      profile_3?: string;
-      profile_4?: string;
-      profile_5?: string;
-      profile_6?: string;
-      profile_7?: string;
-      profile_8?: string;
-      profile_9?: string;
-      profile_10?: string;
-      profile_11?: string;
-      profile_12?: string;
-      preferences_1?: string;
-      preferences_2?: string;
-      preferences_3?: string;
-      preferences_4?: string;
-      preferences_5?: string;
-      mbti_1?: string;
-      mbti_2?: string;
-      mbti_3?: string;
-      mbti_4?: string;
-      mbti_5?: string;
-      mbti_6?: string;
-      mbti_7?: string;
-      mbti_8?: string;
-    };
-    completed?: boolean;
-    completedAt?: string;
-    personalityType?: string;
-    traits?: string[];
-  };
-  lifestyle?: {
-    drinking?: string;
-    smoking?: string;
-    exercise?: string;
-    diet?: string;
-    religion?: string;
-    politics?: string;
-    children?: string;
-    pets?: string;
-  };
-}
+import { getUserProfileById } from "@/lib/api/userProfile";
 
 export default function Matches() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const fromQuiz = searchParams.get("fromQuiz") === "true";
   // Main match display scenarios:
   // 1. After quiz completion: User completes quiz and is shown a match based on their answers
   // 2. Next Match button: User clicks to see another match suggestion
-  const [matches, setMatches] = useState<Match[]>([]);
+  const [matches, setMatches] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [hasMoreMatches, setHasMoreMatches] = useState(true);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const [matchesViewed, setMatchesViewed] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isNextMatchLoading, setIsNextMatchLoading] = useState(false);
-  const [error, setError] = useState("");
   const [hasPersonalityData, setHasPersonalityData] = useState(false);
   const [noMoreMatches, setNoMoreMatches] = useState(false);
   const [isPremium, setIsPremium] = useState(false); // Track premium status
@@ -113,6 +35,8 @@ export default function Matches() {
   const [contactType, setContactType] = useState<
     "phone" | "email" | "address" | "social"
   >("phone");
+  const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
+  const [shouldFetchNewMatches, setShouldFetchNewMatches] = useState(false);
 
   // No need for viewedMatches state anymore, as it's tracked in the database
   const [totalMatchesViewed, setTotalMatchesViewed] = useState(0);
@@ -128,354 +52,695 @@ export default function Matches() {
 
   const FREE_MATCH_LIMIT = 3; // Free users can see 3 matches
 
-  // Updated to use database information instead of localStorage
-  useEffect(() => {
-    if (status === "loading") return;
-    console.log("data is: ", session);
-    if (status === "unauthenticated") {
-      router.push("/login");
-      return;
-    }
+  // Function to fetch complete user profile by ID - with improved error handling
+  const fetchUserProfileById = async (userId: string) => {
+    try {
+      setIsLoading(true);
+      console.log(`Attempting to fetch user profile for ID: ${userId}`);
 
-    // Direct user profile check to get previousMatches
-    const fetchUserProfile = async () => {
-      if (session) {
+      // Check for cached profile data first
+      const cachedProfiles = localStorage.getItem("cachedProfiles") || "{}";
+      try {
+        const profiles = JSON.parse(cachedProfiles);
+        if (profiles[userId]) {
+          console.log(
+            `Using cached profile for ${userId} to avoid database calls`
+          );
+          return profiles[userId];
+        }
+      } catch (e) {
+        console.error("Error parsing cached profiles:", e);
+      }
+
+      // Set a timeout for the fetch operation
+      const fetchWithTimeout = async () => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
         try {
-          setIsLoading(true);
-          const userResponse = await fetch("/api/users/profile");
-          if (userResponse.ok) {
-            const userData = await userResponse.json();
-            console.log("userData is: ", userData);
-            // Check if user has previous matches in their profile
-            if (
-              userData.user?.previousMatches &&
-              userData.user.previousMatches.length > 0
-            ) {
-              console.log(
-                "User has previous matches in profile:",
-                userData.user.previousMatches
-              );
-              setHasPreviousMatches(true);
+          const response = await fetch(`/api/users/byId/${userId}`, {
+            signal: controller.signal,
+          });
 
-              // Set correct matches remaining based on previous matches count
-              const previousMatchesCount = userData.user.previousMatches.length;
+          clearTimeout(timeoutId);
 
-              // Use database count directly instead of localStorage
-              setTotalMatchesViewed(previousMatchesCount);
+          if (!response.ok) {
+            throw new Error(`API returned status ${response.status}`);
+          }
 
-              // For free users, calculate remaining matches consistently
-              const remaining = Math.max(
-                0,
-                FREE_MATCH_LIMIT - previousMatchesCount
-              );
-              setMatchesRemaining(remaining);
-              console.log(
-                "Setting matches remaining to:",
-                remaining,
-                "from previous matches count:",
-                previousMatchesCount
-              );
+          const data = await response.json();
 
-              // Get the most recent previous match
-              const mostRecentMatch =
-                userData.user.previousMatches[
-                  userData.user.previousMatches.length - 1
-                ];
-              console.log("Most recent match from profile:", mostRecentMatch);
+          // Cache the profile data
+          try {
+            const profiles = JSON.parse(
+              localStorage.getItem("cachedProfiles") || "{}"
+            );
+            profiles[userId] = data.user;
+            localStorage.setItem("cachedProfiles", JSON.stringify(profiles));
+            console.log(`Cached profile data for ${userId}`);
+          } catch (e) {
+            console.error("Error caching profile:", e);
+          }
 
-              if (mostRecentMatch && mostRecentMatch.userId) {
-                // Handle various formats of MongoDB ObjectId that might come from the database
-                let userId;
-                if (typeof mostRecentMatch.userId === "object") {
-                  // Handle MongoDB ObjectId stored as { $oid: "..." }
-                  if (mostRecentMatch.userId.$oid) {
-                    userId = mostRecentMatch.userId.$oid;
+          return data.user;
+        } catch (error) {
+          clearTimeout(timeoutId);
+          throw error;
+        }
+      };
+
+      return await fetchWithTimeout();
+    } catch (error) {
+      console.error(`Error fetching user profile for ${userId}:`, error);
+
+      // Return a minimal profile with the userId when the API fails
+      // This ensures the UI can still render something
+      return {
+        _id: userId,
+        userId: userId,
+        name: "User Profile Unavailable",
+        profession: "Connection Error",
+        // Include basic fields to prevent UI errors
+        age: null,
+        gender: null,
+        location: "Database connection error",
+        profileImage: null,
+        bio: "Unable to load profile data. Please try again later.",
+        isErrorPlaceholder: true, // Flag to identify error placeholders
+      };
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Get current match
+  const currentMatch = matches[currentMatchIndex];
+
+  // Get user data for comparison
+  const userAnswers = currentUserProfile?.personalityQuiz?.answers || {};
+  const matchAnswers = currentMatch?.personalityQuiz?.answers || {};
+
+  // Function to fetch a fresh match immediately - ONLY use when explicitly requesting new matches
+  const fetchFreshMatch = async () => {
+    try {
+      setIsLoading(true);
+      console.log("Fetching a fresh match directly...");
+
+      // Check localStorage first to avoid unnecessary API calls
+      const cachedMatches = localStorage.getItem("cachedMatches");
+
+      // If we have cached matches, use them first to avoid OpenAI API calls
+      if (cachedMatches) {
+        try {
+          const parsedMatches = JSON.parse(cachedMatches);
+          console.log("Using cached matches to avoid OpenAI API calls");
+
+          // Check if cached matches need enhancement
+          const enhancedMatches = await Promise.all(
+            parsedMatches.map(async (match: Record<string, any>) => {
+              if (match.name && (match.profession || match.occupation)) {
+                return match; // Already has complete data
+              }
+
+              // Fetch complete profile if needed
+              const userId = match.userId || match._id;
+              if (userId) {
+                try {
+                  const profileResponse = await fetch(
+                    `/api/users/byId/${userId}`
+                  );
+
+                  if (profileResponse.ok) {
+                    const profileData = await profileResponse.json();
+
+                    // Combine match and profile data
+                    return {
+                      ...match,
+                      ...profileData.user,
+                      // Preserve score
+                      score:
+                        match.score ||
+                        match.compatibilityScore ||
+                        profileData.user.score,
+                      compatibilityScore:
+                        match.compatibilityScore ||
+                        match.score ||
+                        profileData.user.compatibilityScore,
+                    };
                   }
-                  // Handle MongoDB ObjectId reference stored as { _id: "..." }
-                  else if (mostRecentMatch.userId._id) {
-                    userId =
-                      typeof mostRecentMatch.userId._id === "object" &&
-                      mostRecentMatch.userId._id.$oid
-                        ? mostRecentMatch.userId._id.$oid
-                        : mostRecentMatch.userId._id.toString();
-                  }
-                  // Handle other object formats
-                  else {
-                    userId = mostRecentMatch.userId.toString();
-                  }
-                } else {
-                  // Direct string ID
-                  userId = mostRecentMatch.userId;
-                }
-
-                console.log("Type of userId:", typeof userId);
-                console.log("Extracted User ID:", userId);
-
-                // Fetch the full match details with exact userId from previousMatches
-                const requestUrl = `/api/matches?userId=${userId}`;
-                console.log("Request URL:", requestUrl);
-
-                // Make sure to use the exact userId from the previousMatches array
-                const matchResponse = await fetch(requestUrl);
-
-                if (matchResponse.ok) {
-                  const matchData = await matchResponse.json();
-                  console.log("Match data response:", matchData);
-
-                  if (matchData.match) {
-                    // We have a match, set it
-                    console.log(
-                      "Setting match from profile previousMatches:",
-                      matchData.match
-                    );
-
-                    setMatches([matchData.match]);
-                    setIsLoading(false);
-                    return true; // Successfully fetched match
-                  }
-                } else {
+                } catch (error) {
                   console.error(
-                    "Failed to fetch match details:",
-                    await matchResponse.text()
+                    `Error enhancing cached match ${userId}:`,
+                    error
                   );
                 }
               }
-            } else {
-              console.log("User has no previous matches in profile");
-              setHasPreviousMatches(false);
 
-              // If no previous matches, user has their full match allotment
-              setMatchesRemaining(FREE_MATCH_LIMIT);
-              console.log(
-                "Setting matches remaining to:",
-                FREE_MATCH_LIMIT,
-                "for new user"
-              );
-            }
-          }
+              return match;
+            })
+          );
+
+          // Update matches
+          console.log("Using cached matches with enhanced profile data");
+          setMatches(enhancedMatches);
+          setCurrentMatchIndex(0);
+
+          // Update cache with enhanced matches
+          localStorage.setItem(
+            "cachedMatches",
+            JSON.stringify(enhancedMatches)
+          );
+
+          setIsLoading(false);
+          return; // Exit early to avoid OpenAI API call
         } catch (error) {
-          console.error("Error fetching user profile:", error);
+          console.error("Error processing cached matches:", error);
+          // Continue to API call if there's an error with cached matches
         }
       }
-      return false; // Failed to fetch match or no matches found
+
+      // Only make this API call when we absolutely need to (no cached matches or refresh button clicked)
+      console.log(
+        "No cached matches found or refresh requested, calling matching API (warning: uses OpenAI API)"
+      );
+      const matchResponse = await fetch("/api/matches?list=true");
+
+      if (!matchResponse.ok) {
+        throw new Error("Failed to fetch matches");
+      }
+
+      const matchData = await matchResponse.json();
+      console.log("Fresh match data received:", matchData);
+
+      if (matchData.matches && matchData.matches.length > 0) {
+        // For each match, fetch the complete user profile if userId is available but name is missing
+        const enhancedMatches = await Promise.all(
+          matchData.matches.map(async (match: Record<string, any>) => {
+            // If the match already has complete profile data, just return it
+            if (match.name && match.profession) {
+              return match;
+            }
+
+            // Otherwise, fetch the complete profile using the byId API
+            if (match.userId || match._id) {
+              try {
+                const userId = match.userId || match._id;
+                console.log(`Fetching complete profile for match ${userId}`);
+                const profileResponse = await fetch(
+                  `/api/users/byId/${userId}`
+                );
+
+                if (profileResponse.ok) {
+                  const profileData = await profileResponse.json();
+                  console.log(
+                    `Got complete profile for ${userId}:`,
+                    profileData.user
+                  );
+
+                  // Combine the profile data with the match data
+                  return {
+                    ...match,
+                    ...profileData.user,
+                    // Ensure score is preserved
+                    score:
+                      match.score ||
+                      match.compatibilityScore ||
+                      profileData.user.score,
+                    compatibilityScore:
+                      match.compatibilityScore ||
+                      match.score ||
+                      profileData.user.compatibilityScore,
+                  };
+                } else {
+                  console.error(`Failed to fetch profile for ${userId}`);
+                  return match;
+                }
+              } catch (error) {
+                console.error(`Error fetching profile for match:`, error);
+                return match;
+              }
+            }
+
+            return match;
+          })
+        );
+
+        // Replace the current matches array with the enhanced data
+        console.log("Enhanced matches:", enhancedMatches);
+
+        // Save the enhanced matches to cache
+        localStorage.setItem("cachedMatches", JSON.stringify(enhancedMatches));
+
+        setMatches(enhancedMatches);
+        setCurrentMatchIndex(0);
+        console.log(
+          "Successfully loaded fresh match data with complete profiles"
+        );
+      } else {
+        console.error("No matches returned from API");
+      }
+    } catch (error) {
+      console.error("Error fetching fresh match:", error);
+      setError("Failed to fetch a fresh match");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Call fetchFreshMatch only if there are no cached matches
+  useEffect(() => {
+    // Check for cached matches first
+    const cachedMatches = localStorage.getItem("cachedMatches");
+
+    if (!cachedMatches) {
+      // Only fetch if no cached matches
+      fetchFreshMatch();
+    } else {
+      // Use cached matches
+      try {
+        const parsedMatches = JSON.parse(cachedMatches);
+        setMatches(parsedMatches);
+        setCurrentMatchIndex(0);
+        setIsLoading(false);
+        console.log("Loaded matches from cache on initial load");
+      } catch (error) {
+        console.error("Error parsing cached matches:", error);
+        // Fallback to fetching fresh matches if cache is corrupted
+        fetchFreshMatch();
+      }
+    }
+  }, []);
+
+  // Add debug logging for currentMatch
+  useEffect(() => {
+    if (currentMatch) {
+      console.log("Current match data:", currentMatch);
+      console.log("Current match keys:", Object.keys(currentMatch));
+      console.log("Match name:", currentMatch.name);
+      console.log("Match profession:", matchAnswers?.profile_5);
+      console.log("Match location:", currentMatch.location);
+      console.log("Match ID:", currentMatch._id);
+      console.log("Match answers:", currentMatch.personalityQuiz?.answers);
+    }
+  }, [currentMatch]);
+
+  // Function to load complete profile for current match - with improved error handling
+  const loadCompleteMatchProfile = async () => {
+    if (!currentMatch || (!currentMatch._id && !currentMatch.userId)) {
+      console.log("No current match data available to load profile");
+      return;
+    }
+
+    try {
+      const userId = currentMatch._id || currentMatch.userId;
+      console.log(`Loading complete profile for match: ${userId}`);
+
+      // Check if we already have complete profile data
+      if (
+        currentMatch.name &&
+        (matchAnswers?.profile_5 || currentMatch.occupation) &&
+        !currentMatch.isErrorPlaceholder
+      ) {
+        console.log("Match already has complete profile data, skipping fetch");
+        return;
+      }
+
+      const completeProfile = await fetchUserProfileById(userId);
+
+      if (completeProfile) {
+        // Update the match in the matches array with the complete profile data
+        const updatedMatches = [...matches];
+        updatedMatches[currentMatchIndex] = {
+          ...currentMatch, // Keep existing match data
+          ...completeProfile, // Add all profile data
+          // Ensure we preserve the compatibility score if it exists
+          score:
+            currentMatch.score ||
+            currentMatch.compatibilityScore ||
+            completeProfile.score ||
+            80,
+          compatibilityScore:
+            currentMatch.compatibilityScore ||
+            currentMatch.score ||
+            completeProfile.compatibilityScore ||
+            80,
+          // Clear error flag if it was set
+          isErrorPlaceholder: false,
+        };
+
+        // Update matches array
+        setMatches(updatedMatches);
+
+        // Update cached matches
+        try {
+          localStorage.setItem("cachedMatches", JSON.stringify(updatedMatches));
+        } catch (e) {
+          console.error("Error updating cached matches:", e);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading complete match profile:", error);
+    }
+  };
+
+  // Load complete profile data when current match changes
+  useEffect(() => {
+    if (currentMatch && currentMatch._id) {
+      loadCompleteMatchProfile();
+    }
+  }, [currentMatchIndex, matches.length]);
+
+  // Fetch matches from API only when needed
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        console.log("Starting to fetch data...");
+        setLoading(true);
+        setIsLoading(true); // Synchronize both loading states
+
+        // Always fetch user profile for latest data
+        const userProfileResponse = await fetch("/api/users/profile");
+        console.log(
+          "User profile API response status:",
+          userProfileResponse.status
+        );
+
+        if (userProfileResponse.ok) {
+          const userData = await userProfileResponse.json();
+          console.log("User profile data:", userData);
+          setCurrentUserProfile(userData.user);
+
+          // Check if user has personality data
+          if (userData.user?.personalityQuiz?.completed) {
+            setHasPersonalityData(true);
+          }
+
+          // Check previous matches count
+          const previousMatchesCount =
+            userData.user?.previousMatches?.length || 0;
+          setHasPreviousMatches(previousMatchesCount > 0);
+          setTotalMatchesViewed(previousMatchesCount);
+
+          // Check subscription status
+          const serverSubscription = userData.user?.subscriptionLevel || "free";
+          if (
+            serverSubscription === "premium_plus" ||
+            serverSubscription === "premium_basic"
+          ) {
+            setIsPremium(true);
+            setSubscribedMatchLimit(
+              serverSubscription === "premium_plus" ? 999 : 10
+            );
+          } else {
+            setIsPremium(false);
+            setSubscribedMatchLimit(FREE_MATCH_LIMIT);
+          }
+
+          // Calculate matches remaining
+          setMatchesRemaining(
+            Math.max(
+              0,
+              (serverSubscription === "premium_plus"
+                ? 999
+                : serverSubscription === "premium_basic"
+                ? 10
+                : FREE_MATCH_LIMIT) - previousMatchesCount
+            )
+          );
+        }
+
+        // Check if we need to fetch new matches
+        const cachedMatches = localStorage.getItem("cachedMatches");
+        const shouldFetchMatchesFromAPI =
+          fromQuiz || // Coming from quiz completion
+          shouldFetchNewMatches || // Explicitly requested new matches
+          !cachedMatches; // No cached matches
+
+        console.log(
+          "Should fetch matches from API:",
+          shouldFetchMatchesFromAPI
+        );
+        console.log("From quiz:", fromQuiz);
+        console.log("Should fetch new matches:", shouldFetchNewMatches);
+        console.log("Has cached matches:", !!cachedMatches);
+
+        if (shouldFetchMatchesFromAPI) {
+          console.log(
+            "WARNING: Fetching new matches from API (uses OpenAI API)..."
+          );
+
+          // Now fetch matches
+          const matchesResponse = await fetch("/api/matches?list=true");
+          console.log("Matches API response status:", matchesResponse.status);
+
+          if (matchesResponse.ok) {
+            const matchesData = await matchesResponse.json();
+            console.log("Matches API response data:", matchesData);
+
+            if (matchesData.matches && matchesData.matches.length > 0) {
+              setMatches(matchesData.matches);
+              setHasMoreMatches(true);
+              console.log(`Loaded ${matchesData.matches.length} matches`);
+
+              // Store in localStorage for next page load
+              localStorage.setItem(
+                "cachedMatches",
+                JSON.stringify(matchesData.matches)
+              );
+
+              // Reset the currentMatchIndex to 0 when fetching new matches
+              setCurrentMatchIndex(0);
+            } else {
+              setMatches([]);
+              setHasMoreMatches(false);
+              console.log("No matches available");
+            }
+          } else {
+            const errorData = await matchesResponse.json();
+            setError(errorData.error || "Failed to fetch matches");
+            console.error("API error:", errorData.error);
+          }
+
+          // Reset the flag after fetching
+          setShouldFetchNewMatches(false);
+        } else {
+          // Use cached matches
+          console.log(
+            "Using cached matches from localStorage (saves OpenAI API calls)"
+          );
+          try {
+            const parsedMatches = JSON.parse(cachedMatches!);
+            console.log("Parsed cached matches:", parsedMatches);
+
+            // Check if cached matches have complete profile data
+            // If not, we might need to enhance them once
+            const firstMatch = parsedMatches[0];
+            const needsEnhancement =
+              firstMatch &&
+              ((!firstMatch.name && firstMatch.userId) ||
+                (!firstMatch.profession && !firstMatch.occupation));
+
+            if (needsEnhancement) {
+              console.log("Cached matches need profile enhancement");
+
+              // Enhance matches with profile data
+              const enhancedMatches = await Promise.all(
+                parsedMatches.map(async (match: Record<string, any>) => {
+                  if (match.name && (match.profession || match.occupation)) {
+                    return match; // Already has complete data
+                  }
+
+                  // Fetch complete profile
+                  const userId = match.userId || match._id;
+                  if (userId) {
+                    try {
+                      console.log(
+                        `Enhancing cached match ${userId} with profile data`
+                      );
+                      const profileResponse = await fetch(
+                        `/api/users/byId/${userId}`
+                      );
+
+                      if (profileResponse.ok) {
+                        const profileData = await profileResponse.json();
+
+                        // Combine match and profile data
+                        return {
+                          ...match,
+                          ...profileData.user,
+                          // Preserve score
+                          score:
+                            match.score ||
+                            match.compatibilityScore ||
+                            profileData.user.score,
+                          compatibilityScore:
+                            match.compatibilityScore ||
+                            match.score ||
+                            profileData.user.compatibilityScore,
+                        };
+                      }
+                    } catch (error) {
+                      console.error(
+                        `Error enhancing cached match ${userId}:`,
+                        error
+                      );
+                    }
+                  }
+
+                  return match;
+                })
+              );
+
+              // Update localStorage with enhanced matches
+              localStorage.setItem(
+                "cachedMatches",
+                JSON.stringify(enhancedMatches)
+              );
+
+              // Set the enhanced matches
+              setMatches(enhancedMatches);
+            } else {
+              // Use cached matches as-is
+              setMatches(parsedMatches);
+            }
+
+            setHasMoreMatches(parsedMatches.length > 0);
+            console.log(`Loaded ${parsedMatches.length} cached matches`);
+          } catch (e) {
+            console.error("Error parsing cached matches:", e);
+            // If there's an error with the cached data, set empty matches
+            setMatches([]);
+            setHasMoreMatches(false);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching data:", err);
+        setError("An error occurred while fetching data");
+      } finally {
+        console.log("Finished fetching data, clearing loading states");
+        setLoading(false);
+        setIsLoading(false); // Synchronize both loading states
+      }
     };
 
-    const initializeMatches = async () => {
-      // First try to fetch the user profile directly to check for previous matches
-      const hasUserProfileMatch = await fetchUserProfile();
+    fetchData();
+  }, [FREE_MATCH_LIMIT, fromQuiz, shouldFetchNewMatches]);
 
-      // If we already found matches from the profile, we're done
-      if (hasUserProfileMatch) {
-        return;
+  // Function to mark a match as viewed in the database
+  const markMatchAsViewed = async (userId: string) => {
+    try {
+      const response = await fetch("/api/matches/mark-viewed", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ userId }),
+      });
+
+      if (response.ok) {
+        setMatchesViewed((prev) => [...prev, userId]);
       }
+    } catch (error) {
+      console.error("Error marking match as viewed:", error);
+    }
+  };
 
-      // Check for personality quiz data
-      const personalityData = localStorage.getItem("quizAnswers");
-      if (personalityData) {
-        setHasPersonalityData(true);
-      } else {
-        setHasPersonalityData(false);
-      }
+  // Function to handle the Next button click
+  const handleNextMatch = async () => {
+    try {
+      // Set loading state
+      setIsLoading(true);
+      setLoading(true);
+      console.log("Next button clicked, loading next match...");
 
-      // For quiz-directed matches, we should always process new matches
-      const fromQuiz = sessionStorage.getItem("from_quiz") === "true";
-
-      // Initialize variables we'll use in the function
-      let matchLimit = FREE_MATCH_LIMIT;
-      let isPremiumUser = false;
-      let totalMatches = 0;
-
-      // Check subscription level and set appropriate limits
-      const checkSubscription = async () => {
-        // Get subscription level from API
-        let subscriptionLevel = "free";
-        let matchesViewedCount = 0;
-        let previousMatchesCount = 0;
-
-        try {
-          if (session) {
-            // If authenticated, get subscription and matches viewed from API
-            const userResponse = await fetch("/api/users/profile");
-            if (userResponse.ok) {
-              const userData = await userResponse.json();
-
-              // Get previous matches count for accurate calculation
-              previousMatchesCount =
-                userData.user?.previousMatches?.length || 0;
-
-              // Get subscription level
-              subscriptionLevel = userData.user?.subscriptionLevel || "free";
-
-              // Use database count directly
-              matchesViewedCount = previousMatchesCount;
-            }
-          } else {
-            // If not authenticated, default to free tier
-            subscriptionLevel = "free";
-            matchesViewedCount = 0;
-          }
-        } catch (error) {
-          console.error("Error checking subscription:", error);
-          // Default to free tier if API call fails
-          matchesViewedCount = 0;
-        }
-
-        // Set total matches viewed state based on previous matches count
-        setTotalMatchesViewed(matchesViewedCount);
-        totalMatches = matchesViewedCount;
-
-        // Set the subscription limit based on the level
-        if (subscriptionLevel === "premium_plus") {
-          matchLimit = 999; // Unlimited (effectively)
-          isPremiumUser = true;
-        } else if (subscriptionLevel === "premium_basic") {
-          matchLimit = 10;
-          isPremiumUser = true;
-        } else {
-          matchLimit = FREE_MATCH_LIMIT;
-          isPremiumUser = false;
-        }
-
-        // Update state with subscription info
-        setSubscribedMatchLimit(matchLimit);
-        setIsPremium(isPremiumUser);
-
-        // Calculate matches remaining - consistently for all users
-        if (subscriptionLevel === "free") {
-          setMatchesRemaining(Math.max(0, matchLimit - matchesViewedCount));
-        } else {
-          setMatchesRemaining(Math.max(0, matchLimit - matchesViewedCount));
-        }
-
-        // Show paywall if matches viewed exceeds subscription limit
-        if (matchesViewedCount >= matchLimit && !isPremiumUser) {
-          setShowPaywall(true);
-          return true; // Return true if we should show paywall
-        }
-
-        return false; // Continue with match fetch
-      };
-
-      // Check if we should show the paywall
-      const shouldShowPaywall = await checkSubscription();
-
-      if (shouldShowPaywall) {
-        setIsLoading(false);
-        return;
-      }
-
-      // Fetch new matches without using localStorage viewed array
-      try {
-        // API call to get matches from database
-        // The API should now track viewed matches server-side
-        debugger;
-        const response = await fetch(
-          `/api/matches?list=true${fromQuiz ? "&fromQuiz=true" : ""}`
+      // Mark the current match as viewed
+      if (matches[currentMatchIndex]) {
+        console.log(
+          "Marking match as viewed:",
+          matches[currentMatchIndex].userId
         );
+        await markMatchAsViewed(matches[currentMatchIndex].userId);
+      }
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || "Failed to fetch matches");
-        }
-        debugger;
-        const data = await response.json();
-        console.log("match data is: ", data);
-        debugger;
-        return;
-        if (!data.matches || data.matches.length === 0) {
-          // Only show quiz if we have no matches AND no personality data
-          if (!personalityData) {
-            setShowQuiz(true);
-          } else {
-            setNoMoreMatches(true);
-          }
-          setIsLoading(false);
-          return;
-        }
+      // Move to the next match if available
+      if (currentMatchIndex < matches.length - 1) {
+        console.log("Moving to next match in current set");
+        const nextIndex = currentMatchIndex + 1;
+        setCurrentMatchIndex(nextIndex);
 
-        // We'll trust the API to return matches the user hasn't seen
-        const filteredMatches = data.matches;
+        // Check if next match has complete profile data
+        const nextMatch = matches[nextIndex];
+        const needsEnhancement =
+          nextMatch &&
+          ((!nextMatch.name && nextMatch.userId) ||
+            (!nextMatch.profession && !nextMatch.occupation));
 
-        if (filteredMatches.length === 0) {
-          // Only show quiz if we have no matches AND no personality data
-          if (!personalityData) {
-            setShowQuiz(true);
-          } else {
-            setNoMoreMatches(true);
-          }
-          setIsLoading(false);
-          return;
-        }
-
-        // Sort by compatibility score
-        filteredMatches.sort(
-          (a: Match, b: Match) => b.compatibilityScore - a.compatibilityScore
-        );
-        console.log("filtered matches are: ", filteredMatches);
-
-        // Get the top match
-        const topMatch = filteredMatches[0];
-        console.log("top match is: ", topMatch);
-        // Update the current match
-        setMatches([topMatch]);
-
-        // Process view counting for quiz-directed matches
-        if (fromQuiz) {
-          // Remove from_quiz flag
-          sessionStorage.removeItem("from_quiz");
-
-          // Always record this match in the database for quiz-directed matches
+        if (needsEnhancement && (nextMatch.userId || nextMatch._id)) {
           try {
-            // Call the API endpoint to record the match view
-            const recordViewResponse = await fetch(
-              `/api/matches/record-view?matchId=${topMatch._id}`
-            );
+            const userId = nextMatch.userId || nextMatch._id;
+            console.log(`Enhancing next match ${userId} with profile data`);
+            const profileResponse = await fetch(`/api/users/byId/${userId}`);
 
-            if (recordViewResponse.ok) {
-              console.log("Match recorded in database after quiz completion");
+            if (profileResponse.ok) {
+              const profileData = await profileResponse.json();
 
-              // Get updated user profile to check total match count
-              const updatedUserResponse = await fetch("/api/users/profile");
-              if (updatedUserResponse.ok) {
-                const updatedUserData = await updatedUserResponse.json();
-                const newMatchesCount =
-                  updatedUserData.user?.previousMatches?.length || 0;
-                console.log("new matches count is: ", newMatchesCount);
-                // Update total matches viewed count based on database
-                setTotalMatchesViewed(newMatchesCount);
+              // Update just the next match with complete data
+              const updatedMatches = [...matches];
+              updatedMatches[nextIndex] = {
+                ...updatedMatches[nextIndex],
+                ...profileData.user,
+                // Preserve the compatibility score
+                score:
+                  nextMatch.score ||
+                  nextMatch.compatibilityScore ||
+                  profileData.user.score,
+                compatibilityScore:
+                  nextMatch.compatibilityScore ||
+                  nextMatch.score ||
+                  profileData.user.compatibilityScore,
+              };
 
-                // Update matches remaining consistently
-                setMatchesRemaining(Math.max(0, matchLimit - newMatchesCount));
-
-                // Show paywall if reached limit
-                if (newMatchesCount > matchLimit && !isPremiumUser) {
-                  setShowPaywall(true);
-                }
-              }
-            } else {
-              console.error(
-                "Failed to record match view in database:",
-                await recordViewResponse.text()
+              // Update matches array and localStorage
+              setMatches(updatedMatches);
+              localStorage.setItem(
+                "cachedMatches",
+                JSON.stringify(updatedMatches)
               );
             }
           } catch (error) {
-            console.error("Error recording match view:", error);
+            console.error(`Error enhancing next match:`, error);
           }
         }
-      } catch (error) {
-        console.error("Error fetching matches:", error);
-        setError("Failed to fetch matches. Please try again.");
-        // Only show quiz if there's an error AND no personality data
-        if (!personalityData) {
-          setShowQuiz(true);
+      } else {
+        // If premium user, fetch more matches
+        console.log("Reached end of current matches, checking if premium user");
+        const userSubscription = session?.user as any;
+        if (
+          userSubscription?.subscriptionStatus === "active" ||
+          userSubscription?.subscriptionPlan === "premium" ||
+          isPremium
+        ) {
+          // Set flag to fetch more matches
+          console.log("Premium user, will fetch more matches");
+          setShouldFetchNewMatches(true);
+        } else {
+          // Non-premium users can't get more matches
+          console.log("Non-premium user, can't fetch more matches");
+          setHasMoreMatches(false);
         }
-      } finally {
-        setIsLoading(false);
       }
-    };
+    } catch (error) {
+      console.error("Error handling next match:", error);
+      setError("An error occurred. Please try again.");
+    } finally {
+      console.log("Finished handling next match, clearing loading states");
+      setIsLoading(false);
+      setLoading(false);
+    }
+  };
 
-    initializeMatches();
-  }, [status, router, session]); // Removed matchId from dependencies
+  // Access user data with proper type casting
+  const userData = session?.user as any;
 
   //...........................///////////////////
 
@@ -562,9 +827,51 @@ export default function Matches() {
         return;
       }
 
-      // Store the new match
-      setMatches([data.match]);
+      // Check if the match needs profile enhancement
+      const match = data.match;
+      const needsEnhancement =
+        match &&
+        ((!match.name && match.userId) ||
+          (!match.profession && !match.occupation));
+
+      let enhancedMatch = match;
+
+      if (needsEnhancement && (match.userId || match._id)) {
+        try {
+          const userId = match.userId || match._id;
+          console.log(`Enhancing match ${userId} with profile data`);
+          const profileResponse = await fetch(`/api/users/byId/${userId}`);
+
+          if (profileResponse.ok) {
+            const profileData = await profileResponse.json();
+
+            // Create enhanced match with profile data
+            enhancedMatch = {
+              ...match,
+              ...profileData.user,
+              // Preserve score
+              score:
+                match.score ||
+                match.compatibilityScore ||
+                profileData.user.score,
+              compatibilityScore:
+                match.compatibilityScore ||
+                match.score ||
+                profileData.user.compatibilityScore,
+            };
+          }
+        } catch (error) {
+          console.error(`Error enhancing match:`, error);
+        }
+      }
+
+      // Store the enhanced match
+      const matchesToSet = [enhancedMatch];
+      setMatches(matchesToSet);
       setShowDetailedProfile(false);
+
+      // Update cache with the enhanced match
+      localStorage.setItem("cachedMatches", JSON.stringify(matchesToSet));
 
       // Get updated user profile to check total match count
       const updatedUserResponse = await fetch("/api/users/profile");
@@ -593,8 +900,27 @@ export default function Matches() {
     }
   };
 
-  const viewProfile = (matchId: string) => {
-    router.push(`/profile/${matchId}`);
+  const viewProfile = async (matchId: string) => {
+    try {
+      // Fetch complete profile data before viewing profile
+      const completeProfileData = await fetchUserProfileById(matchId);
+
+      if (completeProfileData) {
+        // If we need to store the data for the profile page, we can do it here
+        // For example, we could store it in localStorage
+        localStorage.setItem(
+          "currentViewedProfile",
+          JSON.stringify(completeProfileData)
+        );
+      }
+
+      // Navigate to profile page
+      router.push(`/profile/${matchId}`);
+    } catch (error) {
+      console.error("Error preparing profile view:", error);
+      // Still navigate to profile page, which can handle the error case
+      router.push(`/profile/${matchId}`);
+    }
   };
 
   const startChat = (matchId: string) => {
@@ -661,12 +987,6 @@ export default function Matches() {
       setIsSendingProposal(true);
       setProposalError("");
 
-      // Get current match
-      const currentMatch = matches[currentMatchIndex];
-      if (!currentMatch) {
-        throw new Error("No match selected");
-      }
-
       // Call API to send proposal
       const response = await fetch("/api/proposals/send", {
         method: "POST",
@@ -674,7 +994,7 @@ export default function Matches() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          recipientId: currentMatch._id,
+          recipientId: matches[currentMatchIndex]._id,
           message: proposalMessage,
         }),
       });
@@ -971,7 +1291,7 @@ export default function Matches() {
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeWidth="2"
+                  strokeWidth={2}
                   d="M5 13l4 4L19 7"
                 />
               </svg>
@@ -989,7 +1309,7 @@ export default function Matches() {
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeWidth="2"
+                  strokeWidth={2}
                   d="M5 13l4 4L19 7"
                 />
               </svg>
@@ -1007,7 +1327,7 @@ export default function Matches() {
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeWidth="2"
+                  strokeWidth={2}
                   d="M5 13l4 4L19 7"
                 />
               </svg>
@@ -1034,7 +1354,7 @@ export default function Matches() {
     );
   };
 
-  if (isLoading) {
+  if (loading || isLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen bg-gradient-to-r from-purple-50 to-pink-50">
         <div className="text-center">
@@ -1063,6 +1383,12 @@ export default function Matches() {
           <p className="text-gray-600">
             Our AI is analyzing compatibility factors...
           </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -1401,209 +1727,196 @@ export default function Matches() {
     );
   }
 
-  // Get current match
-  const currentMatch = matches[currentMatchIndex];
+  // Helper function to get display value with falback options
+  const getDisplayValue = (value: any, fallback1?: any, fallback2?: any) => {
+    if (value !== undefined && value !== null && value !== "") {
+      return value;
+    }
+    if (fallback1 !== undefined && fallback1 !== null && fallback1 !== "") {
+      return fallback1;
+    }
+    if (fallback2 !== undefined && fallback2 !== null && fallback2 !== "") {
+      return fallback2;
+    }
+    return "Not specified";
+  };
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-4 py-12 bg-gradient-to-b from-pink-50 via-white to-purple-50 min-h-screen">
       {showQuiz && <PersonalityQuiz isOpen={showQuiz} onClose={closeQuiz} />}
       {showContactModal && <ContactModal />}
       {showProposalModal && <ProposalModal />}
-      {hasPersonalityData ? (
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Your Personalized Match
+
+      {/* {hasPersonalityData ? (
+        <div className="mb-12 text-center">
+          <h1 className="text-4xl font-extrabold text-gray-900 mb-3 tracking-tight animate-fade-in">
+            Your Perfect Match Awaits
           </h1>
-          <p className="text-gray-600">
-            Based on your personality quiz, we've found an exceptional match for
-            you.
+          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+            Based on your personality quiz, we've curated an exceptional match
+            just for you.
           </p>
-          <div className="mt-4 bg-purple-50 p-4 rounded-lg inline-block">
-            <div className="flex items-center">
-              <svg
-                className="h-5 w-5 text-purple-600 mr-2"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13 10V3L4 14h7v7l9-11h-7z"
-                />
-              </svg>
-              <span className="text-purple-700 font-medium">
-                AI-powered match based on 20 compatibility factors
-              </span>
-            </div>
-          </div>
         </div>
-      ) : (
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">Your Match</h1>
-      )}
+      ) : null} */}
 
-      {/* Subscription status tracker */}
-      <div className="max-w-4xl mx-auto mb-6">
-        <div
-          className={`${
-            matchesRemaining <= 1
-              ? "bg-red-50 border-red-200"
-              : "bg-yellow-50 border-yellow-200"
-          } border rounded-lg px-4 py-3`}
-        >
-          <div className="flex flex-col sm:flex-row justify-between items-center">
-            <div className="flex items-center mb-2 sm:mb-0">
-              <svg
-                className={`h-5 w-5 ${
-                  matchesRemaining <= 1 ? "text-red-600" : "text-yellow-600"
-                } mr-2`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <span
-                className={`${
-                  matchesRemaining <= 1 ? "text-red-800" : "text-yellow-800"
-                } font-medium`}
-              >
-                {isPremium
-                  ? `Premium subscription: ${matchesRemaining} of ${subscribedMatchLimit} matches remaining`
-                  : `Free account: ${matchesRemaining} of ${FREE_MATCH_LIMIT} matches remaining`}
-              </span>
-            </div>
-            {!isPremium && (
-              <button
-                onClick={upgradeAccount}
-                className="text-white bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 px-4 py-2 rounded-full text-sm font-medium"
-              >
-                Upgrade for More Matches
-              </button>
-            )}
-          </div>
-          <div className="mt-2 w-full bg-gray-200 rounded-full h-1.5">
-            <div
-              className={`${
-                matchesRemaining <= 1
-                  ? "bg-red-500"
-                  : "bg-gradient-to-r from-yellow-400 to-yellow-500"
-              } h-1.5 rounded-full`}
-              style={{
-                width: `${(totalMatchesViewed / subscribedMatchLimit) * 100}%`,
-              }}
-            ></div>
-          </div>
-        </div>
-      </div>
+      {currentMatch && (
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden mb-8 max-w-4xl mx-auto transform transition-all hover:scale-[1.01] duration-300">
+          <div className="p-8">
+            {/* Debug control panel */}
+            {/* <div className="bg-gray-50 p-4 mb-6 rounded-lg border border-gray-200">
+              <h3 className="font-bold text-gray-800 mb-2">Debug Controls</h3>
+              <div className="flex flex-col gap-3">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const cached = localStorage.getItem("cachedMatches");
+                      if (cached) {
+                        try {
+                          const parsed = JSON.parse(cached);
+                          setMatches(parsed);
+                          setCurrentMatchIndex(0);
+                          setIsLoading(false);
+                          console.log(
+                            "Reloaded cached matches without API call"
+                          );
+                        } catch (e) {
+                          console.error("Error parsing cached matches:", e);
+                        }
+                      }
+                    }}
+                    className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600"
+                  >
+                    Reload From Cache (No API Call)
+                  </button>
 
-      {/* Match display */}
-      <div className="max-w-4xl mx-auto">
-        {noMoreMatches ? (
-          <div className="bg-white rounded-xl shadow-xl overflow-hidden p-8 text-center">
-            <div className="mb-6">
-              <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-10 w-10 text-purple-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
-              </div>
-            </div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">
-              No more matches available
-            </h2>
-            <p className="text-gray-600 mb-6">
-              You've seen all available matches for now. Check back later for
-              new matches!
-            </p>
-            <Link
-              href="/"
-              className="inline-flex items-center justify-center bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-full font-medium"
-            >
-              Back to Home
-            </Link>
-          </div>
-        ) : (
-          <div className="bg-white rounded-xl shadow-xl overflow-hidden">
-            <div className="flex flex-col md:flex-row">
-              {/* Match image section */}
-              <div className="md:w-1/2 relative h-96 md:h-auto">
-                <Image
-                  src={currentMatch.profileImage}
-                  alt={`${currentMatch.name}'s profile`}
-                  fill
-                  className="object-cover"
-                  unoptimized // Using placeholder images
-                />
-                {/* Compatibility score badge */}
-                <div className="absolute top-4 right-4 bg-gradient-to-r from-purple-600 to-pink-500 text-white text-lg font-bold rounded-full h-16 w-16 flex items-center justify-center shadow-lg">
-                  <div className="text-center">
-                    <span className="text-lg">
-                      {currentMatch.compatibilityScore}%
-                    </span>
-                    <div className="text-xs">Match</div>
-                  </div>
+                  <button
+                    onClick={() => {
+                      setShouldFetchNewMatches(true);
+                    }}
+                    className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600"
+                  >
+                    Fetch New Matches (Uses OpenAI API)
+                  </button>
                 </div>
-                {/* Personality match badge */}
-                {hasPersonalityData && (
-                  <div className="absolute top-4 left-4">
-                    <div className="bg-gradient-to-r from-purple-600 to-pink-500 text-white px-3 py-1 rounded-full text-sm font-medium shadow-md">
-                      Personal Match
-                    </div>
-                  </div>
-                )}
-              </div>
 
-              {/* Match details section */}
-              <div className="md:w-1/2 p-6">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h2 className="text-3xl font-bold">
-                      {currentMatch.name}, {currentMatch.age}
-                    </h2>
-                    <p className="text-gray-600">
-                      {typeof currentMatch.location === "object"
-                        ? `${currentMatch.location.city || ""}, ${
-                            currentMatch.location.country || ""
-                          }`
-                        : currentMatch.location}
-                    </p>
-                  </div>
-                  {currentMatch.hasUnreadMessages && (
-                    <div className="bg-red-500 text-white px-3 py-1 rounded-full text-xs shadow-md">
-                      New Message
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      localStorage.removeItem("cachedMatches");
+                      window.location.reload();
+                    }}
+                    className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                  >
+                    Clear Cache & Reload (Will Use OpenAI API)
+                  </button>
+                </div>
+
+                <div className="text-xs text-gray-500 mt-1 bg-gray-100 p-2 rounded">
+                  <p>
+                    <strong>Warning:</strong> "Fetch New Matches" and "Clear
+                    Cache" will trigger the OpenAI API call which costs money.
+                  </p>
+                  <p>
+                    <strong>Cost-saving:</strong> Always use "Reload From Cache"
+                    when testing UI changes to avoid API calls.
+                  </p>
+                </div>
+              </div>
+            </div> */}
+
+            {/* Debug output to see what's in currentMatch */}
+            {/* <div className="bg-yellow-50 p-4 mb-4 rounded-lg border border-yellow-200">
+              <h3 className="font-bold text-yellow-800 mb-2">
+                Debug Info (Will be hidden in production)
+              </h3>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div className="bg-white p-2 rounded">
+                  <p className="font-semibold">Match ID:</p>
+                  <p className="font-mono text-xs">
+                    {currentMatch._id || currentMatch.userId || "Not available"}
+                  </p>
+                </div>
+                <div className="bg-white p-2 rounded">
+                  <p className="font-semibold">Name:</p>
+                  <p className="font-mono text-xs">
+                    {currentMatch.name || "Not available"}
+                  </p>
+                </div>
+                <div className="bg-white p-2 rounded">
+                  <p className="font-semibold">Compatibility Score:</p>
+                  <p className="font-mono text-xs">
+                    {currentMatch.score ||
+                      currentMatch.compatibilityScore ||
+                      "Not available"}
+                  </p>
+                </div>
+                <div className="bg-white p-2 rounded">
+                  <p className="font-semibold">Profession:</p>
+                  <p className="font-mono text-xs capitalize">
+                    {matchAnswers?.profile_5 ||
+                      currentMatch.occupation ||
+                      "Not available"}
+                  </p>
+                </div>
+              </div>
+              <details>
+                <summary className="cursor-pointer text-sm font-medium text-yellow-700">
+                  View full match data
+                </summary>
+                <pre className="mt-2 bg-white p-2 rounded overflow-auto text-xs h-40">
+                  {JSON.stringify(currentMatch, null, 2)}
+                </pre>
+              </details>
+            </div> */}
+
+            {/* Match name, image and score */}
+            <div className="flex flex-col md:flex-row gap-8 mb-10">
+              {/* Match image */}
+              <div className="w-full md:w-1/3 flex-shrink-0">
+                <div className="relative h-72 w-full rounded-xl overflow-hidden shadow-lg border-4 border-white">
+                  {currentMatch.profileImage ? (
+                    <Image
+                      src={currentMatch.profileImage}
+                      alt={currentMatch.name || "Match profile"}
+                      fill
+                      className="object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-purple-200 to-pink-200 flex items-center justify-center">
+                      <svg
+                        className="w-24 h-24 text-purple-400"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
                     </div>
                   )}
                 </div>
+              </div>
 
-                <div className="mb-6">
-                  <div className="flex justify-between text-sm text-gray-500 mb-4">
-                    <div>
-                      Matched{" "}
-                      {new Date(currentMatch.matchDate).toLocaleDateString()}
-                    </div>
-                    <div>Active {currentMatch.lastActive}</div>
-                  </div>
-                  <div className="bg-gradient-to-r from-purple-50 via-purple-100 to-pink-50 rounded-xl p-6 mb-6 shadow-md border border-purple-100">
-                    <h3 className="text-xl font-bold text-purple-800 mb-4 flex items-center">
+              {/* Match details */}
+              <div className="flex-1">
+                <h2 className="text-3xl font-bold text-gray-800 mb-2">
+                  {currentMatch.name || "Your Match"}
+                </h2>
+                <p className="text-gray-500 text-lg mb-2 capitalize">
+                  {matchAnswers?.profile_5 ||
+                    currentMatch.occupation ||
+                    "Professional"}
+                  {currentMatch.age ? `, ${currentMatch.age}` : ""}
+                </p>
+
+                {/* Location and education moved up */}
+                <div className="flex flex-wrap gap-4 text-gray-700 mb-4">
+                  {(currentMatch.location || matchAnswers?.profile_4) && (
+                    <div className="flex items-center">
                       <svg
-                        className="w-6 h-6 mr-2 text-purple-600"
+                        className="w-4 h-4 text-purple-500 mr-1"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -1612,284 +1925,526 @@ export default function Matches() {
                           strokeLinecap="round"
                           strokeLinejoin="round"
                           strokeWidth={2}
-                          d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                          d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
                         />
                       </svg>
-                      Match Analysis
-                    </h3>
-
-                    {/* Compatibility score visualization */}
-                    <div className="flex items-center mb-5">
-                      <div className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600 flex items-center">
-                        <span className="mr-3 text-4xl">🌟</span>
-                        <span>
-                          {currentMatch.compatibilityScore.toFixed(2)}%
-                          Compatible
-                        </span>
-                      </div>
+                      <span className="text-sm">
+                        {typeof currentMatch.location === "string"
+                          ? currentMatch.location
+                          : currentMatch.location?.city ||
+                            matchAnswers?.profile_4 ||
+                            "Location not specified"}
+                      </span>
                     </div>
+                  )}
 
-                    {/* Display algorithm explanation */}
-                    <p className="text-gray-700 text-lg mb-5 font-medium">
-                      {typeof currentMatch.explanation === "object"
-                        ? (currentMatch.explanation as any).explanation ||
-                          "You have good compatibility with this match"
-                        : currentMatch.explanation ||
-                          (currentMatch.compatibilityScore > 90
-                            ? "You have exceptional compatibility with this match"
-                            : currentMatch.compatibilityScore > 80
-                            ? "You have great compatibility with this match"
-                            : "You have good compatibility with this match")}
-                    </p>
+                  {(currentMatch.education || matchAnswers?.profile_7) && (
+                    <div className="flex items-center">
+                      <svg
+                        className="w-4 h-4 text-purple-500 mr-1"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path d="M12 14l9-5-9-5-9 5 9 5z" />
+                        <path d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14zm-4 6v-7.5l4-2.222"
+                        />
+                      </svg>
+                      <span className="text-sm">
+                        {currentMatch.education || matchAnswers?.profile_7}
+                      </span>
+                    </div>
+                  )}
+                </div>
 
-                    {/* Display compatibility reasons */}
-                    {typeof currentMatch.explanation === "object" &&
-                    (currentMatch.explanation as any).reasons?.length > 0 ? (
-                      <div className="mb-6">
-                        <h4 className="font-semibold text-purple-800 mb-2">
-                          Why You Match:
-                        </h4>
-                        <ul className="space-y-2">
-                          {(currentMatch.explanation as any).reasons.map(
-                            (reason: string, index: number) => (
-                              <li key={index} className="flex items-start">
-                                <svg
-                                  className="h-5 w-5 text-green-500 mr-2 flex-shrink-0 mt-0.5"
-                                  fill="none"
-                                  viewBox="0 0 24 24"
-                                  stroke="currentColor"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M5 13l4 4L19 7"
-                                  />
-                                </svg>
-                                <span className="text-gray-700">{reason}</span>
-                              </li>
-                            )
-                          )}
-                        </ul>
-                      </div>
-                    ) : (
-                      currentMatch.compatibilityReasons &&
-                      currentMatch.compatibilityReasons.length > 0 && (
-                        <div className="mb-6">
-                          <h4 className="font-semibold text-purple-800 mb-2">
-                            Why You Match:
-                          </h4>
-                          <ul className="space-y-2">
-                            {currentMatch.compatibilityReasons.map(
-                              (reason, index) => (
-                                <li key={index} className="flex items-start">
-                                  <svg
-                                    className="h-5 w-5 text-green-500 mr-2 flex-shrink-0 mt-0.5"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                  >
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M5 13l4 4L19 7"
-                                    />
-                                  </svg>
-                                  <span className="text-gray-700">
-                                    {reason}
-                                  </span>
-                                </li>
-                              )
-                            )}
-                          </ul>
+                <div className="flex items-center mb-5">
+                  <div className="inline-flex items-center bg-gradient-to-r from-purple-500 to-pink-500 px-4 py-2 rounded-full shadow-sm">
+                    <svg
+                      className="w-5 h-5 text-white mr-2"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                    >
+                      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                    </svg>
+                    <span className="font-bold text-white">
+                      {currentMatch.score ||
+                        currentMatch.compatibilityScore ||
+                        81.69}
+                      % Compatible
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex gap-4 mb-8">
+                  {[
+                    {
+                      label: "Contact",
+                      icon: "M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z",
+                      action: () =>
+                        isPremium
+                          ? viewContactInfo("phone")
+                          : setShowContactModal(true),
+                    },
+                    {
+                      label: "Chat",
+                      icon: "M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z",
+                      action: () =>
+                        isPremium
+                          ? startChat(currentMatch.userId)
+                          : setShowContactModal(true),
+                    },
+                    {
+                      label: "Send Proposal",
+                      icon: "M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z",
+                      action: () => setShowProposalModal(true),
+                    },
+                  ].map((btn) => (
+                    <button
+                      key={btn.label}
+                      onClick={btn.action}
+                      className={`flex-1 flex items-center justify-center border-2 border-purple-500 text-purple-600 hover:text-white hover:bg-gradient-to-r hover:from-purple-600 hover:to-pink-500 px-4 py-2 rounded-lg shadow-sm hover:shadow-md transform hover:-translate-y-0.5 transition-all duration-200 ${
+                        !isPremium && btn.label !== "Send Proposal"
+                          ? "relative overflow-hidden"
+                          : ""
+                      }`}
+                    >
+                      <svg
+                        className="w-4 h-4 mr-2"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d={btn.icon}
+                        />
+                      </svg>
+                      <span className="font-medium text-sm">{btn.label}</span>
+                      {!isPremium && btn.label !== "Send Proposal" && (
+                        <div className="absolute -top-0.5 -right-0.5 bg-yellow-500 text-xs px-1.5 py-0.5 rounded-bl-md rounded-tr-md text-white font-bold">
+                          PRO
                         </div>
-                      )
-                    )}
-
-                    {/* Display shared values */}
-                    {typeof currentMatch.explanation === "object" &&
-                    (currentMatch.explanation as any).sharedValues?.length >
-                      0 ? (
-                      <div className="mb-6">
-                        <h4 className="font-semibold text-purple-800 mb-2">
-                          Shared Values:
-                        </h4>
-                        <div className="flex flex-wrap gap-2">
-                          {(currentMatch.explanation as any).sharedValues.map(
-                            (value: string, index: number) => (
-                              <span
-                                key={index}
-                                className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm"
-                              >
-                                {value}
-                              </span>
-                            )
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      currentMatch.sharedValues &&
-                      currentMatch.sharedValues.length > 0 && (
-                        <div className="mb-6">
-                          <h4 className="font-semibold text-purple-800 mb-2">
-                            Shared Values:
-                          </h4>
-                          <div className="flex flex-wrap gap-2">
-                            {currentMatch.sharedValues.map((value, index) => (
-                              <span
-                                key={index}
-                                className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm"
-                              >
-                                {value}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )
-                    )}
-
-                    {/* Display top traits */}
-                    <div className="space-y-3 mb-6">
-                      {typeof currentMatch.explanation === "object" &&
-                      (currentMatch.explanation as any).topTraits?.length >
-                        0 ? (
-                        (currentMatch.explanation as any).topTraits.map(
-                          (trait: string, index: number) => (
-                            <div
-                              key={index}
-                              className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow"
-                            >
-                              <p className="text-gray-700 capitalize">
-                                {trait === "extroverted"
-                                  ? "They are social and energetic, gaining energy from being around others"
-                                  : trait === "introspective"
-                                  ? "They are thoughtful and reflective, valuing deep personal connections"
-                                  : trait === "practical"
-                                  ? "They approach situations with a practical mindset and value real-world results"
-                                  : trait === "creative"
-                                  ? "They have a creative mind and enjoy exploring new possibilities"
-                                  : trait === "independent"
-                                  ? "They value personal space and independence in relationships"
-                                  : trait === "sociable"
-                                  ? "They enjoy social gatherings and connecting with others"
-                                  : trait === "patient"
-                                  ? "They believe relationships develop over time through shared experiences"
-                                  : trait === "romantic"
-                                  ? "They have a romantic outlook on relationships and connections"
-                                  : trait === "grounded"
-                                  ? "They are down-to-earth and focus on tangible realities"
-                                  : `They are ${trait.toLowerCase()}`}
-                              </p>
-                            </div>
-                          )
-                        )
-                      ) : currentMatch.topTraits &&
-                        currentMatch.topTraits.length > 0 ? (
-                        currentMatch.topTraits.map((trait, index) => (
-                          <div
-                            key={index}
-                            className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow"
-                          >
-                            <p className="text-gray-700 capitalize">
-                              {trait === "extroverted"
-                                ? "They are social and energetic, gaining energy from being around others"
-                                : trait === "introspective"
-                                ? "They are thoughtful and reflective, valuing deep personal connections"
-                                : trait === "practical"
-                                ? "They approach situations with a practical mindset and value real-world results"
-                                : trait === "creative"
-                                ? "They have a creative mind and enjoy exploring new possibilities"
-                                : trait === "independent"
-                                ? "They value personal space and independence in relationships"
-                                : trait === "sociable"
-                                ? "They enjoy social gatherings and connecting with others"
-                                : trait === "patient"
-                                ? "They believe relationships develop over time through shared experiences"
-                                : trait === "romantic"
-                                ? "They have a romantic outlook on relationships and connections"
-                                : trait === "grounded"
-                                ? "They are down-to-earth and focus on tangible realities"
-                                : `They are ${trait.toLowerCase()}`}
-                            </p>
-                          </div>
-                        ))
-                      ) : (
-                        <>
-                          <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
-                            <p className="text-gray-700">
-                              Their {currentMatch.personalityType || "unique"}{" "}
-                              personality type suggests they are{" "}
-                              {extractPersonalityTraits(
-                                currentMatch.personalityType
-                              )
-                                ?.slice(0, 3)
-                                .join(", ")
-                                .toLowerCase()}
-                            </p>
-                          </div>
-
-                          <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
-                            <p className="text-gray-700">
-                              They tend to focus on{" "}
-                              {currentMatch.personalityType?.includes("N")
-                                ? "ideas, possibilities, and the future"
-                                : "practical matters, details, and the present"}
-                            </p>
-                          </div>
-
-                          <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
-                            <p className="text-gray-700">
-                              They approach decisions with{" "}
-                              {currentMatch.personalityType?.includes("T")
-                                ? "logical analysis and objective reasoning"
-                                : currentMatch.personalityType?.includes("F")
-                                ? "empathy and consideration for how others will be affected"
-                                : "a balance of logic and emotional awareness"}
-                            </p>
-                          </div>
-
-                          <div className="p-4 bg-white rounded-lg shadow-sm border border-purple-100 hover:shadow-md transition-shadow">
-                            <p className="text-gray-700">
-                              Their{" "}
-                              {currentMatch.personalityType?.includes("E")
-                                ? "extroverted"
-                                : "introverted"}{" "}
-                              nature means they{" "}
-                              {currentMatch.personalityType?.includes("E")
-                                ? "gain energy from social interactions and engagement with others"
-                                : "recharge through quiet reflection and alone time"}
-                            </p>
-                          </div>
-                        </>
                       )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Why You Match section */}
+            <div className="mb-10 bg-gradient-to-br from-purple-100 to-pink-100 rounded-xl p-8 shadow-inner">
+              <h3 className="text-2xl font-semibold text-purple-900 mb-4">
+                Why You're a Great Match
+              </h3>
+              {currentMatch?.score && (
+                <div className="mb-4">
+                  {/* Compute highest score category */}
+                  {(() => {
+                    const matchDetails = currentMatch.matchDetails || {};
+                    const categories = [
+                      {
+                        name: "personalityScore",
+                        score: matchDetails.personalityScore || 0,
+                      },
+                      {
+                        name: "attachmentScore",
+                        score: matchDetails.attachmentScore || 0,
+                      },
+                      {
+                        name: "valuesScore",
+                        score: matchDetails.valuesScore || 0,
+                      },
+                      {
+                        name: "hobbiesScore",
+                        score: matchDetails.hobbiesScore || 0,
+                      },
+                      {
+                        name: "demographicsScore",
+                        score: matchDetails.demographicsScore || 0,
+                      },
+                      {
+                        name: "preferencesScore",
+                        score: matchDetails.preferencesScore || 0,
+                      },
+                    ];
+                    const highestCategory = categories.reduce((prev, current) =>
+                      prev.score > current.score ? prev : current
+                    );
+                    return (
+                      <div className="grid grid-cols-3 gap-3 mb-6">
+                        <div
+                          className={`${
+                            highestCategory.name === "personalityScore"
+                              ? "bg-gradient-to-br from-purple-100 via-white to-pink-100 shadow-md ring-2 ring-purple-200"
+                              : "bg-white"
+                          } rounded-xl p-3 shadow-sm flex flex-col items-center justify-center transition-all hover:shadow-md hover:scale-105`}
+                        >
+                          <div className="text-purple-600 font-bold text-xl mb-1">
+                            {Math.round(
+                              currentMatch.matchDetails.personalityScore || 0
+                            )}
+                            %
+                          </div>
+                          <div className="text-xs text-gray-600 text-center">
+                            Personality
+                          </div>
+                          <div className="mt-1">
+                            <span className="text-purple-500">
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="h-4 w-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                                />
+                              </svg>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div
+                          className={`${
+                            highestCategory.name === "attachmentScore"
+                              ? "bg-gradient-to-br from-purple-100 via-white to-pink-100 shadow-md ring-2 ring-purple-200"
+                              : "bg-white"
+                          } rounded-xl p-3 shadow-sm flex flex-col items-center justify-center transition-all hover:shadow-md hover:scale-105`}
+                        >
+                          <div className="text-purple-600 font-bold text-xl mb-1">
+                            {Math.round(
+                              currentMatch.matchDetails.attachmentScore || 0
+                            )}
+                            %
+                          </div>
+                          <div className="text-xs text-gray-600 text-center">
+                            Attachment
+                          </div>
+                          <div className="mt-1">
+                            <span className="text-purple-500">
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="h-4 w-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+                                />
+                              </svg>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div
+                          className={`${
+                            highestCategory.name === "valuesScore"
+                              ? "bg-gradient-to-br from-purple-100 via-white to-pink-100 shadow-md ring-2 ring-purple-200"
+                              : "bg-white"
+                          } rounded-xl p-3 shadow-sm flex flex-col items-center justify-center transition-all hover:shadow-md hover:scale-105`}
+                        >
+                          <div className="text-purple-600 font-bold text-xl mb-1">
+                            {Math.round(
+                              currentMatch.matchDetails.valuesScore || 0
+                            )}
+                            %
+                          </div>
+                          <div className="text-xs text-gray-600 text-center">
+                            Values
+                          </div>
+                          <div className="mt-1">
+                            <span className="text-purple-500">
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="h-4 w-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                                />
+                              </svg>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div
+                          className={`${
+                            highestCategory.name === "hobbiesScore"
+                              ? "bg-gradient-to-br from-purple-100 via-white to-pink-100 shadow-md ring-2 ring-purple-200"
+                              : "bg-white"
+                          } rounded-xl p-3 shadow-sm flex flex-col items-center justify-center transition-all hover:shadow-md hover:scale-105`}
+                        >
+                          <div className="text-purple-600 font-bold text-xl mb-1">
+                            {Math.round(
+                              currentMatch.matchDetails.hobbiesScore || 0
+                            )}
+                            %
+                          </div>
+                          <div className="text-xs text-gray-600 text-center">
+                            Hobbies
+                          </div>
+                          <div className="mt-1">
+                            <span className="text-purple-500">
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="h-4 w-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                />
+                              </svg>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div
+                          className={`${
+                            highestCategory.name === "demographicsScore"
+                              ? "bg-gradient-to-br from-purple-100 via-white to-pink-100 shadow-md ring-2 ring-purple-200"
+                              : "bg-white"
+                          } rounded-xl p-3 shadow-sm flex flex-col items-center justify-center transition-all hover:shadow-md hover:scale-105`}
+                        >
+                          <div className="text-purple-600 font-bold text-xl mb-1">
+                            {Math.round(
+                              currentMatch.matchDetails.demographicsScore || 0
+                            )}
+                            %
+                          </div>
+                          <div className="text-xs text-gray-600 text-center">
+                            Demographics
+                          </div>
+                          <div className="mt-1">
+                            <span className="text-purple-500">
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="h-4 w-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                                />
+                              </svg>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div
+                          className={`${
+                            highestCategory.name === "preferencesScore"
+                              ? "bg-gradient-to-br from-purple-100 via-white to-pink-100 shadow-md ring-2 ring-purple-200"
+                              : "bg-white"
+                          } rounded-xl p-3 shadow-sm flex flex-col items-center justify-center transition-all hover:shadow-md hover:scale-105`}
+                        >
+                          <div className="text-purple-600 font-bold text-xl mb-1">
+                            {Math.round(
+                              currentMatch.matchDetails.preferencesScore || 0
+                            )}
+                            %
+                          </div>
+                          <div className="text-xs text-gray-600 text-center">
+                            Preferences
+                          </div>
+                          <div className="mt-1">
+                            <span className="text-purple-500">
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="h-4 w-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
+                                />
+                              </svg>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Overall Match Score */}
+                  <div className="bg-gradient-to-r from-purple-100 to-pink-100 rounded-xl p-4 flex items-center justify-between">
+                    <div className="flex items-center">
+                      <div className="h-12 w-12 rounded-full bg-gradient-to-r from-purple-600 to-pink-500 flex items-center justify-center text-white font-bold text-xl mr-4">
+                        {Math.round(currentMatch.score)}%
+                      </div>
+                      <div>
+                        <div className="text-sm text-gray-600">
+                          Overall Match
+                        </div>
+                        <div className="text-purple-900 font-semibold">
+                          {Math.round(currentMatch.score) >= 80
+                            ? "Excellent Chemistry"
+                            : Math.round(currentMatch.score) >= 60
+                            ? "Great Match"
+                            : "Good Potential"}
+                        </div>
+                      </div>
                     </div>
-
-                    <div className="bg-white p-4 rounded-lg shadow-sm border border-purple-100 mb-5">
-                      <p className="text-gray-700 mb-2">
-                        You have {hasPersonalityData ? "several" : "some"}{" "}
-                        complementary traits that could create a balanced
-                        relationship
-                      </p>
-
-                      <p className="text-gray-700">
-                        While you may have different approaches in some areas,
-                        these differences could help you grow together
-                      </p>
+                    <div className="text-purple-700">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-8 w-8"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M13 10V3L4 14h7v7l9-11h-7z"
+                        />
+                      </svg>
                     </div>
+                  </div>
+                </div>
+              )}
+              <p className="text-gray-700 leading-relaxed mt-4">
+                {currentMatch.reason ||
+                  `You and Match ${
+                    currentMatchIndex + 1
+                  } share similar levels of openness, conscientiousness, and agreeableness, creating a harmonious balance. Both exhibit secure attachment styles, fostering trust and emotional intimacy. Your shared hobbies indicate a strong potential for bonding over common interests, paving the way for a fulfilling and supportive relationship.`}
+              </p>
+            </div>
 
-                    <div className="bg-gradient-to-r from-purple-500 to-pink-500 p-4 rounded-lg text-white shadow-md">
-                      <p className="font-semibold text-center">
-                        We recommend starting a conversation to explore your
-                        connection further.
-                      </p>
-                    </div>
+            {/* Profile Comparison */}
+            <div className="mb-10">
+              <h3 className="text-2xl font-semibold text-gray-800 mb-6 flex items-center">
+                <svg
+                  className="w-6 h-6 mr-2 text-purple-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                  />
+                </svg>
+                <span>Match Profile</span>
+              </h3>
 
-                    <div className="mt-6 pt-4 border-t border-purple-200">
-                      <div className="flex items-center text-sm">
-                        <div className="bg-purple-100 rounded-full p-2 mr-3">
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 capitalize">
+                  {[
+                    {
+                      label: "Birth Year",
+                      value:
+                        matchAnswers?.profile_3 ||
+                        currentMatch?.age ||
+                        "Not specified",
+                      icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
+                    },
+                    {
+                      label: "Location",
+                      value:
+                        matchAnswers?.profile_4 ||
+                        currentMatch?.location?.city ||
+                        currentMatch?.location ||
+                        "Not specified",
+                      icon: "M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z",
+                    },
+                    {
+                      label: "Profession",
+                      value:
+                        matchAnswers?.profile_5 ||
+                        currentMatch?.profession ||
+                        currentMatch?.occupation ||
+                        "Not specified",
+                      icon: "M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
+                    },
+                    {
+                      label: "Education",
+                      value:
+                        matchAnswers?.profile_7 ||
+                        currentMatch?.education ||
+                        "Not specified",
+                      icon: "M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14zm-4 6v-7.5l4-2.222",
+                    },
+                    {
+                      label: "Religion",
+                      value:
+                        matchAnswers?.profile_8 ||
+                        currentMatch?.religion ||
+                        currentMatch?.lifestyle?.religion ||
+                        "Not specified",
+                      icon: "M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+                    },
+                    {
+                      label: "Marital Status",
+                      value:
+                        matchAnswers?.profile_9 ||
+                        currentMatch?.relationshipStatus ||
+                        "Not specified",
+                      icon: "M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z",
+                    },
+                    {
+                      label: "Interests",
+                      value:
+                        matchAnswers?.profile_12 ||
+                        (currentMatch?.interests &&
+                        currentMatch?.interests.length > 0
+                          ? currentMatch?.interests?.join(", ")
+                          : "Not specified"),
+                      icon: "M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+                      fullWidth: true,
+                    },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      className={`bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4 shadow-sm transition-all duration-300 hover:shadow-md hover:from-purple-100 hover:to-pink-100 ${
+                        item.fullWidth ? "md:col-span-2" : ""
+                      }`}
+                    >
+                      <div className="flex items-start">
+                        <div className="bg-white p-2 rounded-lg shadow-sm mr-4">
                           <svg
-                            className="h-5 w-5 text-purple-600"
+                            className="w-6 h-6 text-purple-600"
                             fill="none"
                             viewBox="0 0 24 24"
                             stroke="currentColor"
@@ -1897,369 +2452,55 @@ export default function Matches() {
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M13 10V3L4 14h7v7l9-11h-7z"
+                              strokeWidth={1.5}
+                              d={item.icon}
                             />
                           </svg>
                         </div>
-                        <span className="text-purple-700 font-medium">
-                          AI-Powered Match: Our algorithm analyzes personality
-                          traits, interests, relationship goals, and lifestyle
-                          preferences to find your most compatible matches.
-                        </span>
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-500 mb-1">
+                            {item.label}
+                          </h4>
+                          <p className="text-lg font-medium text-gray-800">
+                            {item.value}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>
-
-                {/* Bio section */}
-                <h3 className="text-lg font-semibold mb-3">Bio</h3>
-                <div className="mb-6">
-                  <p className="text-gray-700">{currentMatch.bio}</p>
-                </div>
-
-                {/* Basic info section */}
-                <div className="bg-purple-50 rounded-lg p-4 mb-6">
-                  <h3 className="text-lg font-semibold mb-3 flex items-center">
-                    <svg
-                      className="w-5 h-5 mr-2 text-purple-600"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                      />
-                    </svg>
-                    Basic Info
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-4">
-                    <div className="flex items-center">
-                      <span className="text-gray-500 mr-2">Occupation:</span>
-                      <span className="text-gray-700">
-                        {currentMatch.occupation || "Not specified"}
-                      </span>
-                    </div>
-                    <div className="flex items-center">
-                      <span className="text-gray-500 mr-2">Education:</span>
-                      <span className="text-gray-700">
-                        {currentMatch.education || "Not specified"}
-                      </span>
-                    </div>
-                    <div className="flex items-center">
-                      <span className="text-gray-500 mr-2">Height:</span>
-                      <span className="text-gray-700">
-                        {currentMatch.height || "Not specified"}
-                      </span>
-                    </div>
-                    <div className="flex items-center">
-                      <span className="text-gray-500 mr-2">Status:</span>
-                      <span className="text-gray-700">
-                        {currentMatch.relationshipStatus || "Single"}
-                      </span>
-                    </div>
-                    <div className="flex items-center col-span-2">
-                      <span className="text-gray-500 mr-2">Looking for:</span>
-                      <span className="text-gray-700">
-                        {currentMatch.lookingFor || "Relationship"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Premium feature highlight to motivate subscription */}
-                {!isPremium && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-                    <div className="flex items-start">
-                      <div className="flex-shrink-0 mt-1">
-                        <svg
-                          className="h-5 w-5 text-yellow-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                          />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <h3 className="text-sm font-medium text-yellow-800">
-                          Upgrade to Connect
-                        </h3>
-                        <p className="text-sm text-yellow-700 mt-1">
-                          Premium members are{" "}
-                          <span className="font-semibold">5x more likely</span>{" "}
-                          to find their perfect match. Unlock contact details
-                          and start meaningful conversations!
-                        </p>
-                        <button
-                          onClick={upgradeAccount}
-                          className="mt-2 text-sm font-medium text-purple-600 hover:text-purple-800"
-                        >
-                          Upgrade Now →
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Contact buttons section */}
-                <div className="bg-gray-50 border border-gray-100 rounded-lg p-4 mb-6">
-                  <h3 className="text-lg font-semibold mb-3 flex items-center">
-                    <svg
-                      className="w-5 h-5 mr-2 text-purple-600"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                      />
-                    </svg>
-                    Contact Information
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => viewContactInfo("phone")}
-                      className="flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-sm"
-                    >
-                      <svg
-                        className="w-4 h-4 mr-2 text-purple-600"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                        />
-                      </svg>
-                      Phone Number
-                    </button>
-                    <button
-                      onClick={() => viewContactInfo("email")}
-                      className="flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-sm"
-                    >
-                      <svg
-                        className="w-4 h-4 mr-2 text-purple-600"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                        />
-                      </svg>
-                      Email Address
-                    </button>
-                    <button
-                      onClick={() => viewContactInfo("address")}
-                      className="flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-sm"
-                    >
-                      <svg
-                        className="w-4 h-4 mr-2 text-purple-600"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                        />
-                      </svg>
-                      Full Address
-                    </button>
-                    <button
-                      onClick={() => viewContactInfo("social")}
-                      className="flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-sm"
-                    >
-                      <svg
-                        className="w-4 h-4 mr-2 text-purple-600"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
-                        />
-                      </svg>
-                      Social Profiles
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mb-8">
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {(currentMatch.interests || [])
-                      .slice(0, 4)
-                      .map((interest, index) => (
-                        <span
-                          key={index}
-                          className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm"
-                        >
-                          {interest}
-                        </span>
-                      ))}
-                    {/* If we have quiz interests but no profile interests */}
-                    {(currentMatch.interests || []).length === 0 &&
-                      currentMatch.personalityQuiz?.answers?.profile_12 && (
-                        <>
-                          {currentMatch.personalityQuiz.answers.profile_12
-                            .split(",")
-                            .slice(0, 4)
-                            .map((interest, index) => (
-                              <span
-                                key={index}
-                                className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm"
-                              >
-                                {interest.trim()}
-                              </span>
-                            ))}
-                        </>
-                      )}
-                    {/* Fallback if no interests found */}
-                    {(currentMatch.interests || []).length === 0 &&
-                      !currentMatch.personalityQuiz?.answers?.profile_12 && (
-                        <>
-                          <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm">
-                            Travel
-                          </span>
-                          <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm">
-                            Music
-                          </span>
-                        </>
-                      )}
-                  </div>
-                  <p className="text-gray-500 text-sm">
-                    Common interests based on profile
-                  </p>
-                </div>
-
-                <div className="flex gap-3 mb-6">
-                  <button
-                    onClick={() => viewProfile(currentMatch._id)}
-                    className="bg-white border border-purple-600 text-purple-600 hover:bg-purple-50 px-6 py-3 rounded-full font-medium flex-1 flex justify-center items-center"
-                  >
-                    <svg
-                      className="h-5 w-5 mr-2"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                      />
-                    </svg>
-                    View Full Profile
-                  </button>
-                  <button
-                    onClick={() => startChat(currentMatch._id)}
-                    className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-full font-medium flex-1 flex justify-center items-center"
-                  >
-                    <svg
-                      className="h-5 w-5 mr-2"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                      />
-                    </svg>
-                    Start Chat
-                  </button>
-                </div>
-
-                {/* Proposal button */}
-                <button
-                  onClick={() => setShowProposalModal(true)}
-                  className="w-full mb-6 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white px-6 py-3 rounded-full font-medium flex items-center justify-center"
-                >
-                  <svg
-                    className="h-5 w-5 mr-2"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-                    />
-                  </svg>
-                  Send Proposal
-                </button>
-
-                <button
-                  type="button"
-                  onClick={nextMatch}
-                  disabled={isNextMatchLoading}
-                  className={`w-full bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white px-6 py-4 rounded-full font-bold text-xl transition-all ${
-                    isNextMatchLoading
-                      ? "opacity-70 cursor-not-allowed"
-                      : "hover:scale-105"
-                  }`}
-                >
-                  {isNextMatchLoading ? (
-                    <span className="flex items-center justify-center">
-                      <span className="mr-3 h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                      Finding Next Match...
-                    </span>
-                  ) : (
-                    "Next Match"
-                  )}
-                </button>
-                <div className="mt-4 text-center">
-                  <p className="text-gray-500 text-sm">
-                    {currentMatchIndex + 1} of{" "}
-                    {!isPremium ? `${FREE_MATCH_LIMIT} (Free)` : matches.length}{" "}
-                    potential matches
-                  </p>
+                  ))}
                 </div>
               </div>
             </div>
+
+            {/* Navigation buttons */}
+            <div className="flex justify-between items-center mt-8 border-t border-gray-100 pt-6">
+              <button
+                onClick={() =>
+                  currentMatchIndex > 0 &&
+                  setCurrentMatchIndex(currentMatchIndex - 1)
+                }
+                className={`px-6 py-3 rounded-lg font-medium transition-all duration-200 ${
+                  currentMatchIndex > 0
+                    ? "bg-gray-200 hover:bg-gray-300 text-gray-800 shadow-sm hover:shadow-md"
+                    : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                }`}
+                disabled={currentMatchIndex === 0}
+              >
+                Previous Match
+              </button>
+              <div className="text-gray-500 font-medium">
+                Match #{currentMatchIndex + 1} of {matches.length}
+              </div>
+              <button
+                onClick={handleNextMatch}
+                className="px-6 py-3 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-medium shadow-md hover:shadow-lg transition-all duration-200"
+              >
+                Next Match
+              </button>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1000,7 +1000,8 @@ export default function PersonalityQuiz({
       triggerCelebration();
       setPoints(points + 100); // Bonus points for completing
 
-      router.push("/matches");
+      // Redirect to matches page with fromQuiz=true to trigger fetching new matches
+      router.push("/matches?fromQuiz=true");
 
       // Don't auto-close the modal to allow user to retake the quiz if they want
       // setTimeout(() => {

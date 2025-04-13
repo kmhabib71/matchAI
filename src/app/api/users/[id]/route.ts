@@ -1,56 +1,79 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/dbConnect";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { UserRole } from "@/models/User";
 import bcryptjs from "bcryptjs";
+import User from "@/models/User";
 
 // Get a specific user by id
 export async function GET(
-  req: Request,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    // Check if user is authenticated
-    const session = await getServerSession(authOptions);
-
-    if (!session?.user?.email) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
-    }
-
     // Connect to database
     await dbConnect();
 
-    // Get User model
-    const { default: User } = await import("@/models/User");
+    // Get current user session for authorization checks
+    const session = await getServerSession(authOptions);
 
-    // Check if user is admin or if they are requesting their own data
-    const currentUser = await User.findOne({ email: session.user.email });
-    const isAdmin = currentUser?.roles?.includes(UserRole.ADMIN);
-    const isSelfRequest = currentUser?._id.toString() === params.id;
-
-    if (!isAdmin && !isSelfRequest) {
-      return NextResponse.json(
-        { error: "Not authorized to access this user data" },
-        { status: 403 }
-      );
-    }
-
-    // Find the user by ID
-    const user = await User.findById(params.id).select("-password");
+    // Find the requested user
+    const userId = params.id;
+    const user = await User.findById(userId);
 
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    return NextResponse.json(user);
-  } catch (error: any) {
-    console.error(`Error fetching user ${params.id}:`, error);
+    // Convert Mongoose document to plain object
+    const userObj = user.toObject();
+
+    // Remove sensitive fields
+    delete userObj.password;
+    delete userObj.email; // Only expose email to admins or the user themselves
+    delete userObj.verifications;
+    delete userObj.__v;
+
+    // Check if this is the current user or an admin
+    const isOwnProfile = session?.user?.id === userId;
+    const isAdmin = session?.user?.roles?.includes("admin");
+
+    // If not own profile or admin, remove additional sensitive fields
+    if (!isOwnProfile && !isAdmin) {
+      // Keep email hidden
+      userObj.email = undefined;
+
+      // Don't expose raw quiz answers except for profile display fields
+      if (userObj.personalityQuiz && userObj.personalityQuiz.answers) {
+        const displayAnswers = [
+          "profile_1",
+          "profile_2",
+          "profile_3",
+          "profile_4",
+          "profile_5",
+          "profile_7",
+          "profile_8",
+          "profile_9",
+          "profile_12",
+        ];
+
+        const filteredAnswers: Record<string, string> = {};
+        displayAnswers.forEach((key) => {
+          if (userObj.personalityQuiz.answers[key]) {
+            filteredAnswers[key] = userObj.personalityQuiz.answers[key];
+          }
+        });
+
+        userObj.personalityQuiz.answers = filteredAnswers;
+      }
+    }
+
+    return NextResponse.json(userObj);
+  } catch (error) {
+    console.error("Error fetching user:", error);
     return NextResponse.json(
-      { error: error.message || "Failed to fetch user" },
+      { error: "Failed to fetch user" },
       { status: 500 }
     );
   }

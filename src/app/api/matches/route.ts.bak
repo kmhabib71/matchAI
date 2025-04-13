@@ -8,7 +8,7 @@ import {
   findTop5Soulmates,
   getPersonalityTraits,
 } from "@/lib/ai/matchingAlgorithm";
-import { analyzeTopMatches } from "@/lib/ai/helpers/compat";
+import { analyzeTopMatches } from "@/lib/ai/openai";
 import jwt from "jsonwebtoken";
 import { ObjectId } from "mongodb";
 import mongoose from "mongoose";
@@ -432,7 +432,7 @@ export async function GET(request: NextRequest) {
         const candidatesWithFullData = await Promise.all(
           top5Candidates.map(async (score) => {
             const user = await User.findById(score.userId);
-            return { user, score, matchDetails: score.matchDetails };
+            return { user, score };
           })
         );
         console.log("candidatesWithFullData is: ", candidatesWithFullData);
@@ -480,8 +480,6 @@ export async function GET(request: NextRequest) {
                     : null) ||
                   "",
                 relationshipStatus: userProfile.relationshipStatus || "",
-                // Include matchDetails from the AI analysis
-                matchDetails: match.matchDetails || {},
               };
             } catch (error) {
               console.error(`Error enhancing match ${match.userId}:`, error);
@@ -496,7 +494,6 @@ export async function GET(request: NextRequest) {
           userId: new mongoose.Types.ObjectId(match.userId),
           score: match.score,
           reason: match.reason,
-          matchDetails: match.matchDetails,
           matchDate: currentDate,
           isViewed: false, // Initialize as not viewed
         }));
@@ -527,7 +524,7 @@ export async function GET(request: NextRequest) {
         console.log(
           `Returning ${enhancedMatches.length} matches to client with full profile data`
         );
-        console.log("enhancedMatches is: ", enhancedMatches);
+
         // Add explicit return to ensure we don't continue execution
         return NextResponse.json({
           matches: enhancedMatches,
@@ -608,7 +605,6 @@ export async function GET(request: NextRequest) {
           userId: nextMatchData.userId.toString(),
           score: nextMatchData.score || 0,
           reason: nextMatchData.reason || "",
-          matchDetails: nextMatchData.matchDetails || {},
           _id: userProfile._id,
           name: userProfile.name || "",
           age: userProfile.age || null,
@@ -685,7 +681,10 @@ export async function GET(request: NextRequest) {
       }
 
       // Calculate compatibility score
-      const score = calculateCompatibilityScore(currentUser, specificUser);
+      const score = calculateCompatibilityScore(
+        currentUser.personalityQuiz?.answers || {},
+        specificUser.personalityQuiz?.answers || {}
+      );
 
       // Use type assertion to treat specificUser as a generic object
       const userProfile = specificUser as any;
@@ -693,8 +692,7 @@ export async function GET(request: NextRequest) {
       // Create enhanced match with full profile data
       const enhancedMatch = {
         userId: specificUserId,
-        score: score.score,
-        matchDetails: score.matchDetails,
+        score: score,
         _id: userProfile._id,
         name: userProfile.name || "",
         age: userProfile.age || null,
@@ -815,6 +813,7 @@ function buildMatchingPipeline(currentUser: any, excludedUserIds: string[]) {
       "WARNING: User marital status not specified, this filter will be skipped"
     );
   }
+
   // 4. AGE RANGE FILTER
   const agePreference = answers.preferences_1;
   if (agePreference && agePreference.includes("-")) {

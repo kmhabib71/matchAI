@@ -37,6 +37,10 @@ export interface IMatchRecord {
   compatibilityScore?: number;
   explanation?: string;
   viewedAt?: Date;
+  isViewed?: boolean;
+  score?: number;
+  reason?: string;
+  matchDate?: Date;
 }
 
 // Interface for user preferences
@@ -166,6 +170,10 @@ const UserSchema: Schema = new Schema(
         compatibilityScore: { type: Number },
         explanation: { type: String },
         viewedAt: { type: Date, default: Date.now },
+        isViewed: { type: Boolean, default: false },
+        score: { type: Number },
+        reason: { type: String },
+        matchDate: { type: Date },
       },
     ],
     subscription: {

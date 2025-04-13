@@ -533,8 +533,7 @@ export function generateMatchExplanation(
   candidate: IUser,
   score: CompatibilityScore
 ): string {
-  // This is a placeholder - the actual implementation is in openai.ts
-  return `Match score: ${score.score.toFixed(
-    1
-  )}%. This user appears to be highly compatible with you based on personality traits, attachment style, and shared interests.`;
+  // Use the template-based generator instead of OpenAI
+  const { generateMatchExplanation: generateExplanation } = require("./index");
+  return generateExplanation(currentUser, candidate, score);
 }

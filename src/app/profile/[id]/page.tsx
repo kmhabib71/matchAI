@@ -4,193 +4,105 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import axios from "axios";
 
-// Mock data for users - would be fetched from an API in a real application
-const MOCK_USERS = [
-  {
-    id: "1",
-    name: "Sarah",
-    age: 28,
-    location: { city: "London", country: "UK" },
-    gender: "Female",
-    image:
-      "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=400&auto=format&fit=crop",
-    bio: "Creative and passionate digital marketer with a love for photography and hiking. Looking for someone kind and adventurous to explore life with.",
-    interests: ["Photography", "Hiking", "Travel", "Reading", "Cooking"],
-    jobTitle: "Digital Marketing Manager",
-    education: "Bachelor's in Marketing, University of London",
-    looking_for:
-      "A serious relationship with someone who shares similar values and interests",
-    compatibility_score: 92,
-    compatibility_reasons: [
-      "Similar interests in outdoor activities",
-      "Complementary communication styles",
-      "Shared life goals and values",
-      "Matching emotional intelligence levels",
-    ],
-    last_active: "Online now",
-    gallery: [
-      "https://images.unsplash.com/photo-1534751516642-a1af1ef26a56?q=80&w=400&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=400&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1502823403499-6ccfcf4fb453?q=80&w=400&auto=format&fit=crop",
-    ],
-  },
-  {
-    id: "2",
-    name: "James",
-    age: 32,
-    location: { city: "New York", country: "USA" },
-    gender: "Male",
-    image:
-      "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?q=80&w=400&auto=format&fit=crop",
-    bio: "Software engineer by day, amateur chef by night. I love creating things, whether it's code or cuisine. Looking for someone to share good conversations and meals with.",
-    interests: ["Cooking", "Technology", "Running", "Movies", "Jazz Music"],
-    jobTitle: "Senior Software Developer",
-    education: "Master's in Computer Science, MIT",
-    looking_for:
-      "Someone who values intellectual curiosity and enjoys good food",
-    compatibility_score: 87,
-    compatibility_reasons: [
-      "Complementary problem-solving approaches",
-      "Shared intellectual curiosity",
-      "Both enjoy quality time at home and exploring",
-      "Similar communication styles",
-    ],
-    last_active: "Active 20 minutes ago",
-    gallery: [
-      "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=400&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?q=80&w=400&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?q=80&w=400&auto=format&fit=crop",
-    ],
-  },
-  {
-    id: "3",
-    name: "Elena",
-    age: 26,
-    location: { city: "Barcelona", country: "Spain" },
-    gender: "Female",
-    image:
-      "https://images.unsplash.com/photo-1614283233556-f35b0c801ef1?q=80&w=400&auto=format&fit=crop",
-    bio: "Aspiring painter and art teacher who loves the Mediterranean lifestyle. I enjoy beach days, wine tastings, and dancing until dawn. Looking for someone with a creative spirit.",
-    interests: ["Painting", "Dancing", "Wine Tasting", "Yoga", "Beach Life"],
-    jobTitle: "Art Teacher",
-    education: "Fine Arts, University of Barcelona",
-    looking_for:
-      "A passionate and creative person who enjoys the arts and spontaneous adventures",
-    compatibility_score: 89,
-    compatibility_reasons: [
-      "Shared appreciation for arts and creativity",
-      "Complementary energy levels",
-      "Similar views on work-life balance",
-      "Matching social preferences",
-    ],
-    last_active: "Active 2 hours ago",
-    gallery: [
-      "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?q=80&w=400&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1534008897995-27a23e859048?q=80&w=400&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?q=80&w=400&auto=format&fit=crop",
-    ],
-  },
-  {
-    id: "4",
-    name: "Michael",
-    age: 30,
-    location: { city: "Toronto", country: "Canada" },
-    gender: "Male",
-    image:
-      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=400&auto=format&fit=crop",
-    bio: "Environmental scientist who loves the outdoors. I spend my weekends hiking, kayaking, or volunteering for conservation projects. Looking for someone who shares my love for nature.",
-    interests: [
-      "Hiking",
-      "Kayaking",
-      "Environmental Conservation",
-      "Photography",
-      "Dogs",
-    ],
-    jobTitle: "Environmental Scientist",
-    education: "PhD in Environmental Science, University of Toronto",
-    looking_for:
-      "An eco-conscious partner who enjoys outdoor adventures and quiet evenings under the stars",
-    compatibility_score: 95,
-    compatibility_reasons: [
-      "Shared values on environmental issues",
-      "Mutual love for outdoor activities",
-      "Complementary communication styles",
-      "Similar life goals and ambitions",
-    ],
-    last_active: "Active 1 day ago",
-    gallery: [
-      "https://images.unsplash.com/photo-1499996860823-5214fcc65f8f?q=80&w=400&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1480455624313-e29b44bbfde1?q=80&w=400&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=400&auto=format&fit=crop",
-    ],
-  },
-  {
-    id: "5",
-    name: "Sophia",
-    age: 29,
-    location: { city: "Sydney", country: "Australia" },
-    gender: "Female",
-    image:
-      "https://images.unsplash.com/photo-1534751516642-a1af1ef26a56?q=80&w=400&auto=format&fit=crop",
-    bio: "Marine biologist with a passion for ocean conservation. I love scuba diving, sailing, and beach clean-ups. Looking for someone who shares my passion for protecting our planet.",
-    interests: [
-      "Scuba Diving",
-      "Marine Life",
-      "Conservation",
-      "Sailing",
-      "Surfing",
-    ],
-    jobTitle: "Marine Biologist",
-    education: "Master's in Marine Biology, University of Sydney",
-    looking_for:
-      "A partner who shares my love for the ocean and dedication to environmental causes",
-    compatibility_score: 91,
-    compatibility_reasons: [
-      "Shared environmental values",
-      "Mutual love for the ocean and beach life",
-      "Complementary personality types",
-      "Similar levels of ambition and drive",
-    ],
-    last_active: "Online now",
-    gallery: [
-      "https://images.unsplash.com/photo-1534751516642-a1af1ef26a56?q=80&w=400&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1503185912284-5271ff81b9a8?q=80&w=400&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1516239482977-b550ba7253f2?q=80&w=400&auto=format&fit=crop",
-    ],
-  },
-  // More mock users would be added here...
-];
+// Define the User interface based on MongoDB schema
+interface User {
+  _id: string;
+  name: string;
+  email: string;
+  age: number;
+  gender: string;
+  location: {
+    city: string;
+    country: string;
+  };
+  profileImage: string;
+  additionalPhotos: string[];
+  interests: string[];
+  relationshipGoals: string[];
+  personalityQuiz?: {
+    completed: boolean;
+    completedAt: string;
+    personalityType: string;
+    answers: Record<string, string>;
+  };
+  personalityType?: string;
+  lastActive?: string;
+  previousMatches?: Array<{
+    userId: string;
+    score: number;
+    reason: string;
+    isViewed: boolean;
+    matchDate: string;
+  }>;
+  lifestyle?: {
+    smoking: string;
+    drinking: string;
+    diet: string;
+    religion: string;
+  };
+}
 
 const UserProfilePage = () => {
   const router = useRouter();
   const params = useParams();
   const userId = params.id as string;
 
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState("");
   const [messageText, setMessageText] = useState("");
+  const [compatibility, setCompatibility] = useState<{
+    score: number;
+    reasons: string[];
+  }>({
+    score: 0,
+    reasons: [],
+  });
 
   useEffect(() => {
-    // Simulate API call to fetch user data
-    const fetchUserData = () => {
+    // Fetch user data from MongoDB
+    const fetchUserData = async () => {
       setLoading(true);
-      // Find user with matching ID
-      const foundUser = MOCK_USERS.find((u) => u.id === userId);
+      try {
+        const response = await axios.get(`/api/users/${userId}`);
+        const userData = response.data;
 
-      if (foundUser) {
-        setUser(foundUser);
-        setSelectedImage(foundUser.image);
-      } else {
-        // Handle user not found
-        router.push("/users");
+        if (userData) {
+          setUser(userData);
+
+          // Set profile image or default
+          setSelectedImage(
+            userData.profileImage ||
+              `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                userData.name
+              )}&background=8B5CF6&color=fff&size=150`
+          );
+
+          // Process compatibility data
+          if (userData.previousMatches && userData.previousMatches.length > 0) {
+            const latestMatch = userData.previousMatches[0];
+            setCompatibility({
+              score: Math.round(latestMatch.score),
+              reasons: latestMatch.reason.split(". ").filter(Boolean),
+            });
+          }
+        } else {
+          // Handle user not found
+          router.push("/matches");
+        }
+      } catch (error) {
+        console.error("Error fetching user data:", error);
+        router.push("/matches");
+      } finally {
+        setLoading(false);
       }
-
-      setLoading(false);
     };
 
-    fetchUserData();
+    if (userId) {
+      fetchUserData();
+    }
   }, [userId, router]);
 
   if (loading) {
@@ -219,15 +131,75 @@ const UserProfilePage = () => {
             Sorry, this user profile doesn't exist or has been removed.
           </p>
           <Link
-            href="/users"
+            href="/matches"
             className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-full text-sm font-medium"
           >
-            Return to Users
+            Return to Matches
           </Link>
         </div>
       </div>
     );
   }
+
+  // Extract data from user's personalityQuiz answers
+  const quizAnswers = user.personalityQuiz?.answers || {};
+
+  // Format the user's birth year to calculate age
+  const birthYear = quizAnswers.profile_3
+    ? parseInt(quizAnswers.profile_3)
+    : null;
+  const currentAge = birthYear
+    ? new Date().getFullYear() - birthYear
+    : user.age;
+
+  // Get profession/occupation from quiz answers
+  const profession = quizAnswers.profile_5 || "Not specified";
+
+  // Get education from quiz answers
+  const education = quizAnswers.profile_7 || "Not specified";
+
+  // Get looking for from relationship goals
+  const lookingFor = user.relationshipGoals?.join(", ") || "Not specified";
+
+  // Extract interests from quiz answers if available
+  const hobbies = quizAnswers.profile_12
+    ? quizAnswers.profile_12.split(",").map((h) => h.trim())
+    : user.interests || [];
+
+  // Add placeholders for gallery
+  const galleryImages = [
+    user.profileImage ||
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(
+        user.name
+      )}&background=8B5CF6&color=fff&size=150`,
+    ...(user.additionalPhotos || []),
+  ];
+
+  // If not enough images, add placeholders
+  while (galleryImages.length < 4) {
+    galleryImages.push(
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(
+        user.name
+      )}&background=8B5CF6&color=fff&size=150`
+    );
+  }
+
+  // Format last active date
+  const formatLastActive = (lastActiveDate?: string) => {
+    if (!lastActiveDate) return "Recently active";
+
+    const lastActive = new Date(lastActiveDate);
+    const now = new Date();
+    const diffMinutes = Math.floor(
+      (now.getTime() - lastActive.getTime()) / (1000 * 60)
+    );
+
+    if (diffMinutes < 1) return "Online now";
+    if (diffMinutes < 60) return `Active ${diffMinutes} minutes ago`;
+    if (diffMinutes < 1440)
+      return `Active ${Math.floor(diffMinutes / 60)} hours ago`;
+    return `Active ${Math.floor(diffMinutes / 1440)} days ago`;
+  };
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -236,12 +208,25 @@ const UserProfilePage = () => {
     setMessageText("");
   };
 
+  // Generate compatibility reasons if none exist
+  const getCompatibilityReasons = () => {
+    if (compatibility.reasons.length > 0) return compatibility.reasons;
+
+    // Default reasons based on personality type
+    return [
+      `Similar personal values and lifestyle preferences`,
+      `Compatible communication styles`,
+      `Complementary personality traits`,
+      `Shared interests in ${hobbies.slice(0, 2).join(" and ")}`,
+    ];
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-6xl mx-auto">
         <div className="mb-6">
           <Link
-            href="/users"
+            href="/matches"
             className="text-purple-600 hover:text-purple-800 font-medium flex items-center"
           >
             <svg
@@ -256,7 +241,7 @@ const UserProfilePage = () => {
                 clipRule="evenodd"
               />
             </svg>
-            Back to All Users
+            Back to Matches
           </Link>
         </div>
 
@@ -278,7 +263,12 @@ const UserProfilePage = () => {
                 <div className="mr-4">
                   <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-full border-2 border-white overflow-hidden relative">
                     <Image
-                      src={user.image}
+                      src={
+                        user.profileImage ||
+                        `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                          user.name
+                        )}&background=8B5CF6&color=fff&size=150`
+                      }
                       alt={`${user.name}'s avatar`}
                       fill
                       style={{ objectFit: "cover" }}
@@ -287,7 +277,7 @@ const UserProfilePage = () => {
                 </div>
                 <div>
                   <h1 className="text-2xl sm:text-3xl font-bold">
-                    {user.name}, {user.age}
+                    {user.name}, {currentAge}
                   </h1>
                   <div className="flex items-center mt-1">
                     <svg
@@ -311,12 +301,17 @@ const UserProfilePage = () => {
                       />
                     </svg>
                     <p className="text-sm">
-                      {user.location.city}, {user.location.country}
+                      {user.location.city}
+                      {user.location.country
+                        ? `, ${user.location.country}`
+                        : ""}
                     </p>
                     <span className="mx-2">•</span>
-                    <p className="text-sm">{user.gender}</p>
+                    <p className="text-sm text-capitalize">{user.gender}</p>
                   </div>
-                  <p className="mt-1 text-sm opacity-80">{user.last_active}</p>
+                  <p className="mt-1 text-sm opacity-80">
+                    {formatLastActive(user.lastActive)}
+                  </p>
                 </div>
               </div>
             </div>
@@ -351,17 +346,17 @@ const UserProfilePage = () => {
                   <div className="w-full h-3 bg-gray-200 rounded-full mr-2">
                     <div
                       className="h-3 bg-gradient-to-r from-purple-600 to-pink-500 rounded-full"
-                      style={{ width: `${user.compatibility_score}%` }}
+                      style={{ width: `${compatibility.score}%` }}
                     ></div>
                   </div>
                   <span className="text-lg font-bold">
-                    {user.compatibility_score}%
+                    {compatibility.score}%
                   </span>
                 </div>
                 <div className="text-sm text-gray-700">
                   <p className="mb-2">Why you're compatible:</p>
                   <ul className="list-disc list-inside space-y-1 pl-2">
-                    {user.compatibility_reasons.map(
+                    {getCompatibilityReasons().map(
                       (reason: string, index: number) => (
                         <li key={index}>{reason}</li>
                       )
@@ -370,26 +365,102 @@ const UserProfilePage = () => {
                 </div>
               </div>
 
+              {/* Personality Type */}
+              {(user.personalityType ||
+                user.personalityQuiz?.personalityType) && (
+                <div className="mb-6">
+                  <h2 className="text-xl font-bold mb-3">Personality Type</h2>
+                  <div className="bg-gray-100 rounded-lg p-3">
+                    <p className="text-gray-900 font-medium">
+                      {user.personalityType ||
+                        user.personalityQuiz?.personalityType}
+                    </p>
+                    <p className="text-gray-600 text-sm mt-1">
+                      {getPersonalityDescription(
+                        user.personalityType ||
+                          user.personalityQuiz?.personalityType ||
+                          ""
+                      )}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* About Me */}
               <div className="mb-6">
                 <h2 className="text-xl font-bold mb-3">About Me</h2>
-                <p className="text-gray-700">{user.bio}</p>
+                <p className="text-gray-700">
+                  {quizAnswers.profile_1
+                    ? `Hi, I'm ${quizAnswers.profile_1}. I'm a ${
+                        quizAnswers.profile_9 || "single"
+                      } ${currentAge}-year-old ${user.gender} living in ${
+                        user.location.city
+                      }. I work as a ${profession} and enjoy ${hobbies
+                        .slice(0, 3)
+                        .join(", ")}.`
+                    : `Hi, I'm ${user.name}. I'm ${currentAge} years old and looking for a meaningful connection.`}
+                </p>
               </div>
 
-              {/* Interests */}
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-3">Interests</h2>
-                <div className="flex flex-wrap gap-2">
-                  {user.interests.map((interest: string, index: number) => (
-                    <span
-                      key={index}
-                      className="bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm"
-                    >
-                      {interest}
-                    </span>
-                  ))}
+              {/* Interests/Hobbies */}
+              {hobbies.length > 0 && (
+                <div className="mb-6">
+                  <h2 className="text-xl font-bold mb-3">Interests</h2>
+                  <div className="flex flex-wrap gap-2">
+                    {hobbies.map((interest: string, index: number) => (
+                      <span
+                        key={index}
+                        className="bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm"
+                      >
+                        {interest}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Lifestyle */}
+              {user.lifestyle && (
+                <div className="mb-6">
+                  <h2 className="text-xl font-bold mb-3">Lifestyle</h2>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="bg-gray-100 p-3 rounded-lg text-center">
+                      <span className="block text-gray-500 text-xs mb-1">
+                        Religion
+                      </span>
+                      <span className="font-medium">
+                        {quizAnswers.profile_8 ||
+                          user.lifestyle.religion ||
+                          "Not specified"}
+                      </span>
+                    </div>
+                    <div className="bg-gray-100 p-3 rounded-lg text-center">
+                      <span className="block text-gray-500 text-xs mb-1">
+                        Smoking
+                      </span>
+                      <span className="font-medium">
+                        {user.lifestyle.smoking || "Not specified"}
+                      </span>
+                    </div>
+                    <div className="bg-gray-100 p-3 rounded-lg text-center">
+                      <span className="block text-gray-500 text-xs mb-1">
+                        Drinking
+                      </span>
+                      <span className="font-medium">
+                        {user.lifestyle.drinking || "Not specified"}
+                      </span>
+                    </div>
+                    <div className="bg-gray-100 p-3 rounded-lg text-center">
+                      <span className="block text-gray-500 text-xs mb-1">
+                        Diet
+                      </span>
+                      <span className="font-medium">
+                        {user.lifestyle.diet || "Not specified"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Professional & Education */}
               <div className="mb-6">
@@ -412,7 +483,7 @@ const UserProfilePage = () => {
                         d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
                       />
                     </svg>
-                    <p className="text-gray-700">{user.jobTitle}</p>
+                    <p className="text-gray-700 capitalize">{profession}</p>
                   </div>
                   <div className="flex items-start">
                     <svg
@@ -429,7 +500,7 @@ const UserProfilePage = () => {
                         d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
                       />
                     </svg>
-                    <p className="text-gray-700">{user.education}</p>
+                    <p className="text-gray-700 uppercase">{education}</p>
                   </div>
                 </div>
               </div>
@@ -437,14 +508,14 @@ const UserProfilePage = () => {
               {/* Looking For */}
               <div className="mb-6">
                 <h2 className="text-xl font-bold mb-3">Looking For</h2>
-                <p className="text-gray-700">{user.looking_for}</p>
+                <p className="text-gray-700">{lookingFor}</p>
               </div>
 
               {/* Gallery */}
               <div className="mb-6">
                 <h2 className="text-xl font-bold mb-3">Gallery</h2>
                 <div className="grid grid-cols-3 gap-3">
-                  {[user.image, ...user.gallery].map((imageUrl, index) => (
+                  {galleryImages.map((imageUrl, index) => (
                     <div
                       key={index}
                       className={`relative h-32 sm:h-40 rounded-lg overflow-hidden cursor-pointer border-2 ${
@@ -535,5 +606,32 @@ const UserProfilePage = () => {
     </div>
   );
 };
+
+// Helper function to get personality description
+function getPersonalityDescription(personalityType: string): string {
+  const descriptions: Record<string, string> = {
+    ISTJ: "Quiet, serious, practical and orderly. Responsible and reliable with a strong sense of duty.",
+    ISFJ: "Quiet, friendly, responsible and conscientious. Committed to meeting obligations and devoted to their relationships.",
+    INFJ: "Quiet, mystical, idealistic and creative. Seeks meaning and connection, committed to their values.",
+    INTJ: "Independent, analytical, logical and determined. Driven by their own ideas and purpose, has high standards.",
+    ISTP: "Tolerant, flexible and practical problem-solvers. Enjoys exploring with their hands and analyzing how things work.",
+    ISFP: "Quiet, friendly, sensitive and kind. Enjoys the present moment and values their personal space and freedom.",
+    INFP: "Idealistic, loyal, curious and adaptable. Cares deeply about their values and helping others fulfill their potential.",
+    INTP: "Analytical, detached, logical and curious. Theoretical and abstract, interested in ideas and logical analysis.",
+    ESTP: "Energetic, action-oriented, pragmatic and outgoing. Enjoys material comforts and living in the moment.",
+    ESFP: "Outgoing, friendly, accepting and spontaneous. Lovers of life, people, and material comforts.",
+    ENFP: "Enthusiastic, creative, spontaneous and versatile. Sees life as full of possibilities and makes connections between events.",
+    ENTP: "Quick, ingenious, stimulating and outspoken. Resourceful in solving new and challenging problems.",
+    ESTJ: "Practical, realistic, decisive and structured. Values traditions and loyalty, organized and takes charge.",
+    ESFJ: "Warmhearted, conscientious, cooperative and harmonious. Wants to be appreciated for who they are and what they do.",
+    ENFJ: "Warm, empathetic, responsive and responsible. Highly attuned to the emotions and needs of others.",
+    ENTJ: "Frank, decisive, strategic and logical. Natural leader who sees possibilities for improvement.",
+  };
+
+  return (
+    descriptions[personalityType] ||
+    "A unique individual with their own special traits and characteristics."
+  );
+}
 
 export default UserProfilePage;

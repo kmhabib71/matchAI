@@ -10,6 +10,7 @@ const nextConfig = {
       "via.placeholder.com",
       "placehold.co",
       "lh3.googleusercontent.com",
+      "ui-avatars.com",
     ],
   },
 };
