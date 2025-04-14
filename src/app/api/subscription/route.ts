@@ -51,6 +51,37 @@ async function getUserFromToken(req: NextRequest) {
   }
 }
 
+// Subscription plan details
+const subscriptionPlans = {
+  free: {
+    name: "Free",
+    price: 0,
+    currency: "BDT",
+    matchesLimit: 3,
+    proposalsLimit: 3,
+    contactsLimit: 3,
+    chatsLimit: 3,
+  },
+  premium_basic: {
+    name: "Premium Basic",
+    price: 499,
+    currency: "BDT",
+    matchesLimit: 10,
+    proposalsLimit: 10,
+    contactsLimit: 10,
+    chatsLimit: 10,
+  },
+  premium_plus: {
+    name: "Premium Plus",
+    price: 999,
+    currency: "BDT",
+    matchesLimit: 50,
+    proposalsLimit: 50,
+    contactsLimit: 50,
+    chatsLimit: 50,
+  },
+};
+
 // Mock subscription data for demo purposes
 const mockSubscription = {
   _id: "demo-subscription-id",
@@ -60,6 +91,14 @@ const mockSubscription = {
   currentPeriodStart: new Date(),
   currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
   createdAt: new Date(),
+  matchesLimit: 3,
+  proposalsLimit: 3,
+  contactsLimit: 3,
+  chatsLimit: 3,
+  usedMatches: 0,
+  usedProposals: 0,
+  usedContacts: 0,
+  usedChats: 0,
 };
 
 // GET handler to fetch user's subscription
@@ -102,19 +141,44 @@ export async function GET(req: NextRequest) {
     // Find the user's subscription
     const subscription = await Subscription.findOne({ userId: user._id });
 
+    // If no subscription exists, create a default free subscription
+    if (!subscription) {
+      const currentDate = new Date();
+      const nextMonth = new Date(currentDate);
+      nextMonth.setMonth(nextMonth.getMonth() + 1);
+
+      const newSubscription = new Subscription({
+        userId: user._id,
+        planId: "free",
+        status: "active",
+        currentPeriodStart: currentDate,
+        currentPeriodEnd: nextMonth,
+        matchesLimit: 3,
+        proposalsLimit: 3,
+        contactsLimit: 3,
+        chatsLimit: 3,
+        usedMatches: 0,
+        usedProposals: 0,
+        usedContacts: 0,
+        usedChats: 0,
+      });
+
+      await newSubscription.save();
+
+      // Update the user's subscription level
+      user.subscriptionLevel = "free";
+      await user.save();
+
+      return NextResponse.json({
+        subscription: newSubscription,
+        plans: subscriptionPlans,
+      });
+    }
+
     // Return the subscription data
     return NextResponse.json({
-      subscription: subscription
-        ? {
-            _id: subscription._id,
-            userId: subscription.userId,
-            planId: subscription.planId,
-            status: subscription.status,
-            currentPeriodStart: subscription.currentPeriodStart,
-            currentPeriodEnd: subscription.currentPeriodEnd,
-            createdAt: subscription.createdAt,
-          }
-        : null,
+      subscription: subscription,
+      plans: subscriptionPlans,
     });
   } catch (error) {
     console.error("Error fetching subscription:", error);
@@ -148,7 +212,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Parse the request body
-    const { planId } = await req.json();
+    const body = await req.json();
+    const { planId, mobileNumber } = body;
 
     if (!planId) {
       return NextResponse.json(
@@ -158,8 +223,16 @@ export async function POST(req: NextRequest) {
     }
 
     // Validate plan ID
-    if (!["free", "monthly", "yearly"].includes(planId)) {
+    if (!["free", "premium_basic", "premium_plus"].includes(planId)) {
       return NextResponse.json({ error: "Invalid plan ID" }, { status: 400 });
+    }
+
+    // For paid plans, mobile number is required
+    if (planId !== "free" && !mobileNumber) {
+      return NextResponse.json(
+        { error: "Mobile number is required for paid plans" },
+        { status: 400 }
+      );
     }
 
     // Connect to the database
@@ -184,55 +257,90 @@ export async function POST(req: NextRequest) {
     // Calculate subscription period
     const now = new Date();
     const currentPeriodStart = now;
-    let currentPeriodEnd;
+    const currentPeriodEnd = new Date(now);
+    currentPeriodEnd.setMonth(currentPeriodEnd.getMonth() + 1); // All plans are monthly
 
-    if (planId === "monthly") {
-      // Add 1 month
-      currentPeriodEnd = new Date(now);
-      currentPeriodEnd.setMonth(currentPeriodEnd.getMonth() + 1);
-    } else if (planId === "yearly") {
-      // Add 1 year
-      currentPeriodEnd = new Date(now);
-      currentPeriodEnd.setFullYear(currentPeriodEnd.getFullYear() + 1);
-    } else {
-      // Free plan has no end date
-      currentPeriodEnd = null;
-    }
+    // Set plan details based on selected plan
+    const planDetails =
+      subscriptionPlans[planId as keyof typeof subscriptionPlans];
+
+    // For free plan, activate immediately
+    // For paid plans, set status to pending until payment is confirmed
+    const status = planId === "free" ? "active" : "pending";
 
     if (subscription) {
       // Update existing subscription
       subscription.planId = planId;
-      subscription.status = "active";
+      subscription.status = status;
       subscription.currentPeriodStart = currentPeriodStart;
       subscription.currentPeriodEnd = currentPeriodEnd;
+      subscription.matchesLimit = planDetails.matchesLimit;
+      subscription.proposalsLimit = planDetails.proposalsLimit;
+      subscription.contactsLimit = planDetails.contactsLimit;
+      subscription.chatsLimit = planDetails.chatsLimit;
+
+      // Reset usage if changing plans or if it's a new billing period
+      if (
+        subscription.planId !== planId ||
+        (subscription.currentPeriodEnd && subscription.currentPeriodEnd < now)
+      ) {
+        subscription.usedMatches = 0;
+        subscription.usedProposals = 0;
+        subscription.usedContacts = 0;
+        subscription.usedChats = 0;
+      }
+
+      // Set payment details for paid plans
+      if (planId !== "free") {
+        subscription.amount = planDetails.price;
+        subscription.currency = planDetails.currency;
+        subscription.mobileNumber = mobileNumber;
+        subscription.paymentMethod = "bKash";
+      }
+
       await subscription.save();
     } else {
       // Create new subscription
       subscription = new Subscription({
         userId: user._id,
         planId,
-        status: "active",
+        status,
         currentPeriodStart,
         currentPeriodEnd,
+        matchesLimit: planDetails.matchesLimit,
+        proposalsLimit: planDetails.proposalsLimit,
+        contactsLimit: planDetails.contactsLimit,
+        chatsLimit: planDetails.chatsLimit,
+        usedMatches: 0,
+        usedProposals: 0,
+        usedContacts: 0,
+        usedChats: 0,
       });
+
+      // Set payment details for paid plans
+      if (planId !== "free") {
+        subscription.amount = planDetails.price;
+        subscription.currency = planDetails.currency;
+        subscription.mobileNumber = mobileNumber;
+        subscription.paymentMethod = "bKash";
+      }
+
       await subscription.save();
     }
 
-    // In a real application, this would integrate with a payment processor
-    // For now, we'll just return a success response
+    // Update user's subscription level
+    user.subscriptionLevel = planId;
+    await user.save();
 
     // Return the updated subscription
     return NextResponse.json({
-      message: "Subscription updated successfully",
-      subscription: {
-        _id: subscription._id,
-        userId: subscription.userId,
-        planId: subscription.planId,
-        status: subscription.status,
-        currentPeriodStart: subscription.currentPeriodStart,
-        currentPeriodEnd: subscription.currentPeriodEnd,
-        createdAt: subscription.createdAt,
-      },
+      message:
+        planId === "free"
+          ? "Subscription updated successfully"
+          : "Your account will be upgraded within 15 minutes",
+      subscription: subscription,
+      pendingPayment: planId !== "free",
+      bKashNumber: "01XXXXXXXXX", // Replace with your actual bKash number
     });
   } catch (error) {
     console.error("Error updating subscription:", error);

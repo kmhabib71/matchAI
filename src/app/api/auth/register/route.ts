@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import dbConnect from "@/lib/db/mongodb";
 import User from "@/models/User";
+import Subscription from "@/models/Subscription";
 import { z } from "zod";
 
 // Define validation schema for registration
@@ -89,11 +90,35 @@ export async function POST(req: NextRequest) {
         },
         dealBreakers: [],
       },
+      subscriptionLevel: "free", // Default subscription level
       profileCompleted: false,
     });
 
     // Save user to database
     await user.save();
+
+    // Create a default subscription for the user
+    const currentDate = new Date();
+    const nextMonth = new Date(currentDate);
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+
+    const subscription = new Subscription({
+      userId: user._id,
+      planId: "free",
+      status: "active",
+      currentPeriodStart: currentDate,
+      currentPeriodEnd: nextMonth,
+      matchesLimit: 3,
+      proposalsLimit: 3,
+      contactsLimit: 3,
+      chatsLimit: 3,
+      usedMatches: 0,
+      usedProposals: 0,
+      usedContacts: 0,
+      usedChats: 0,
+    });
+
+    await subscription.save();
 
     // Return success response (exclude password)
     const userResponse = user.toObject();

@@ -107,6 +107,29 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Check subscription level and match limits
+    const subscriptionPlan = currentUser.subscription?.planId || "free";
+    const previousMatchesCount = currentUser.previousMatches?.length || 0;
+
+    // Define limits based on subscription level
+    let matchLimit = 3; // Default for free users
+    if (subscriptionPlan === "premium_plus") {
+      matchLimit = 999; // Essentially unlimited
+    } else if (subscriptionPlan === "premium_basic") {
+      matchLimit = 10;
+    }
+
+    const viewedMatchesCount = (currentUser.previousMatches || []).filter(
+      (match: any) => match.isViewed
+    ).length;
+
+    console.log(
+      `User has viewed ${viewedMatchesCount} matches out of ${previousMatchesCount} total matches`
+    );
+    console.log(
+      `Subscription level: ${subscriptionPlan}, Match limit: ${matchLimit}`
+    );
+
     // Get the previously matched users from the user's previousMatches array
     const previouslyMatchedUserIds = (currentUser.previousMatches || [])
       .filter((match: any) => match.isViewed) // Only filter out viewed matches
@@ -144,6 +167,23 @@ export async function GET(request: NextRequest) {
 
     // Check if we should count this as a new match view
     const shouldCountView = refresh || fromQuiz || listMode;
+
+    // Check if user has reached their match limit for both list mode and refresh requests
+    if ((listMode || refresh) && viewedMatchesCount >= matchLimit) {
+      console.log(
+        `User has reached their match limit (${matchLimit}). Returning paywall response.`
+      );
+      return NextResponse.json(
+        {
+          error: "Match limit reached",
+          paywallRequired: true,
+          matchLimit,
+          currentCount: viewedMatchesCount,
+          subscriptionLevel: subscriptionPlan,
+        },
+        { status: 403 }
+      );
+    }
 
     // If we're in list mode, return all potential matches using the 3-step algorithm
     if (listMode) {

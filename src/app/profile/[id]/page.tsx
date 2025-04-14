@@ -88,8 +88,8 @@ const UserProfilePage = () => {
               reasons: latestMatch.reason.split(". ").filter(Boolean),
             });
           }
-        } else {
-          // Handle user not found
+      } else {
+        // Handle user not found
           router.push("/matches");
         }
       } catch (error) {
@@ -101,7 +101,7 @@ const UserProfilePage = () => {
     };
 
     if (userId) {
-      fetchUserData();
+    fetchUserData();
     }
   }, [userId, router]);
 
@@ -404,19 +404,19 @@ const UserProfilePage = () => {
 
               {/* Interests/Hobbies */}
               {hobbies.length > 0 && (
-                <div className="mb-6">
-                  <h2 className="text-xl font-bold mb-3">Interests</h2>
-                  <div className="flex flex-wrap gap-2">
+              <div className="mb-6">
+                <h2 className="text-xl font-bold mb-3">Interests</h2>
+                <div className="flex flex-wrap gap-2">
                     {hobbies.map((interest: string, index: number) => (
-                      <span
-                        key={index}
-                        className="bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm"
-                      >
-                        {interest}
-                      </span>
-                    ))}
-                  </div>
+                    <span
+                      key={index}
+                      className="bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm"
+                    >
+                      {interest}
+                    </span>
+                  ))}
                 </div>
+              </div>
               )}
 
               {/* Lifestyle */}

@@ -67,6 +67,21 @@ export default function Register() {
         throw new Error(result.error || "Registration failed");
       }
 
+      // Create a free subscription for the new user
+      const subResponse = await fetch("/api/subscriptions/create-free", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email: data.email }),
+      });
+
+      if (!subResponse.ok) {
+        console.warn(
+          "Could not create free subscription, but continuing registration"
+        );
+      }
+
       // Redirect to login page on success
       router.push("/login?registered=true");
     } catch (err: any) {
@@ -112,7 +127,6 @@ export default function Register() {
       }
 
       // 🔁 Call your social-token API to generate custom JWT
-
       const tokenRes = await fetch("/api/auth/social-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -125,6 +139,21 @@ export default function Register() {
         console.error("Failed to get auth token from server:", tokenData);
         setError(tokenData.error || "Authentication token error");
         return;
+      }
+
+      // Create a free subscription for the new user
+      const subscriptionRes = await fetch("/api/subscriptions/create-free", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${tokenData.token}`,
+        },
+      });
+
+      if (!subscriptionRes.ok) {
+        console.warn(
+          "Could not create free subscription, but continuing signup"
+        );
       }
 
       // 💾 Store token and user in localStorage

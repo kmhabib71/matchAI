@@ -11,6 +11,15 @@ export interface ISubscription extends Document {
   amount?: number;
   currency?: string;
   autoRenew?: boolean;
+  matchesLimit: number;
+  proposalsLimit: number;
+  contactsLimit: number;
+  chatsLimit: number;
+  usedMatches: number;
+  usedProposals: number;
+  usedContacts: number;
+  usedChats: number;
+  mobileNumber?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -25,13 +34,13 @@ const SubscriptionSchema: Schema = new Schema(
     planId: {
       type: String,
       required: true,
-      enum: ["free", "monthly", "yearly"],
+      enum: ["free", "premium_basic", "premium_plus"],
       default: "free",
     },
     status: {
       type: String,
       required: true,
-      enum: ["active", "cancelled", "expired", "failed"],
+      enum: ["active", "cancelled", "expired", "pending", "failed"],
       default: "active",
     },
     currentPeriodStart: {
@@ -46,6 +55,7 @@ const SubscriptionSchema: Schema = new Schema(
     paymentMethod: {
       type: String,
       enum: ["bKash", "Credit Card", "Debit Card"],
+      default: "bKash",
     },
     paymentId: {
       type: String,
@@ -55,11 +65,46 @@ const SubscriptionSchema: Schema = new Schema(
     },
     currency: {
       type: String,
-      default: "USD",
+      default: "BDT",
     },
     autoRenew: {
       type: Boolean,
       default: true,
+    },
+    matchesLimit: {
+      type: Number,
+      default: 3, // Default for free plan
+    },
+    proposalsLimit: {
+      type: Number,
+      default: 3, // Default for free plan
+    },
+    contactsLimit: {
+      type: Number,
+      default: 3, // Default for free plan
+    },
+    chatsLimit: {
+      type: Number,
+      default: 3, // Default for free plan
+    },
+    usedMatches: {
+      type: Number,
+      default: 0,
+    },
+    usedProposals: {
+      type: Number,
+      default: 0,
+    },
+    usedContacts: {
+      type: Number,
+      default: 0,
+    },
+    usedChats: {
+      type: Number,
+      default: 0,
+    },
+    mobileNumber: {
+      type: String,
     },
   },
   { timestamps: true }

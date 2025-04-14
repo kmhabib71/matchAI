@@ -103,6 +103,7 @@ export interface IUser extends Document {
   currentMatch?: IMatchRecord;
   previousMatches?: IMatchRecord[];
   subscription?: IUserSubscription;
+  subscriptionLevel?: string;
   profileCompleted: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -183,6 +184,7 @@ const UserSchema: Schema = new Schema(
       currentPeriodEnd: { type: Date },
       createdAt: { type: Date },
     },
+    subscriptionLevel: { type: String },
     profileCompleted: { type: Boolean, default: false },
     interactions: {
       nextMatchClicks: { type: Number, default: 0 },

@@ -159,7 +159,6 @@ export default function Login() {
       }
 
       // 🔁 Call your social-token API to generate custom JWT
-
       const tokenRes = await fetch("/api/auth/social-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -172,6 +171,21 @@ export default function Login() {
         console.error("Failed to get auth token from server:", tokenData);
         setError(tokenData.error || "Authentication token error");
         return;
+      }
+
+      // Check if user has a subscription, if not create a free subscription
+      const subscriptionRes = await fetch("/api/subscriptions/create-free", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${tokenData.token}`,
+        },
+      });
+
+      if (!subscriptionRes.ok) {
+        console.warn(
+          "Could not create free subscription, but continuing login"
+        );
       }
 
       // 💾 Store token and user in localStorage
