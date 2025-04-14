@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import PersonalityQuiz from "@/components/PersonalityQuiz";
@@ -12,6 +12,28 @@ export default function Home() {
   const { data: session } = useSession();
   const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
   const [notAuthenticatedModal, setNotAuthenticatedModal] = useState(false);
+  const [blogPosts, setBlogPosts] = useState<any[]>([]);
+  const [isLoadingBlogs, setIsLoadingBlogs] = useState(true);
+
+  // Fetch latest blog posts for homepage
+  useEffect(() => {
+    const fetchLatestBlogs = async () => {
+      try {
+        const response = await fetch("/api/blog?limit=3");
+        const data = await response.json();
+
+        if (response.ok) {
+          setBlogPosts(data.blogs);
+        }
+      } catch (error) {
+        console.error("Error fetching blog posts:", error);
+      } finally {
+        setIsLoadingBlogs(false);
+      }
+    };
+
+    fetchLatestBlogs();
+  }, []);
 
   const openMatchModal = () => {
     setIsQuizModalOpen(true);
@@ -20,6 +42,94 @@ export default function Home() {
   const closeModal = () => {
     setIsQuizModalOpen(false);
   };
+
+  // Add this section before the How It Works section
+  const BlogSection = () => (
+    <section className="py-16 px-4 bg-gray-50 w-full">
+      <div className="max-w-6xl mx-auto">
+        <div className="text-center mb-12">
+          <h2 className="text-3xl md:text-4xl font-bold mb-4">
+            Dating Tips & Relationship Advice
+          </h2>
+          <p className="text-lg text-gray-600 max-w-3xl mx-auto">
+            Explore our blog for helpful articles on dating, relationships, and
+            making the most of your matchmaking experience.
+          </p>
+        </div>
+
+        {isLoadingBlogs ? (
+          <div className="flex justify-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500"></div>
+          </div>
+        ) : blogPosts.length === 0 ? (
+          <div className="text-center">
+            <p>Check back soon for exciting blog content!</p>
+            <Link
+              href="/blog"
+              className="inline-block mt-4 px-6 py-3 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
+            >
+              Visit Blog
+            </Link>
+          </div>
+        ) : (
+          <>
+            <div className="grid md:grid-cols-3 gap-8">
+              {blogPosts.map((post) => (
+                <Link
+                  key={post._id}
+                  href={`/blog/${post.slug}`}
+                  className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-transform hover:-translate-y-1"
+                >
+                  <div className="relative h-48 w-full">
+                    <Image
+                      src={post.featuredImage}
+                      alt={post.title}
+                      fill
+                      sizes="(max-width: 768px) 100vw, 33vw"
+                      className="object-cover"
+                    />
+                  </div>
+                  <div className="p-6">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs text-purple-600 font-medium px-2 py-1 bg-purple-50 rounded-full">
+                        {post.category}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {new Date(post.publishedDate).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <h3 className="font-bold text-xl mb-2 line-clamp-2">
+                      {post.title}
+                    </h3>
+                    <p className="text-gray-600 text-sm mb-4 line-clamp-3">
+                      {post.excerpt}
+                    </p>
+                    <div className="flex justify-between items-center">
+                      <span className="text-purple-600 font-medium">
+                        Read More
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {post.views} views
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+
+            <div className="text-center mt-10">
+              <Link
+                href="/blog"
+                className="inline-block px-8 py-3 bg-purple-600 text-white rounded-full hover:bg-purple-700 transition-colors"
+              >
+                View All Articles
+              </Link>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
 
   return (
     <main className="flex min-h-screen flex-col items-center mt-[-65px]">
@@ -507,6 +617,9 @@ export default function Home() {
           </p>
         </div>
       </section>
+
+      {/* Latest Blog Posts Section */}
+      <BlogSection />
 
       {/* How It Works Section */}
       <section className="py-16 px-4 bg-gray-50 w-full">
@@ -1139,7 +1252,83 @@ export default function Home() {
       </footer>
 
       {/* Personality Quiz Component */}
-      <PersonalityQuiz isOpen={isQuizModalOpen} onClose={closeModal} />
+      {isQuizModalOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto relative">
+            <button
+              onClick={closeModal}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+            <PersonalityQuiz onClose={closeModal} />
+          </div>
+        </div>
+      )}
+
+      {/* Not Authenticated Modal */}
+      {notAuthenticatedModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 relative">
+            <button
+              onClick={() => setNotAuthenticatedModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+            <h3 className="text-xl font-bold mb-4">Sign In Required</h3>
+            <p className="mb-6">
+              Please sign in or create an account to access this feature.
+            </p>
+            <div className="flex space-x-4">
+              <button
+                onClick={() => {
+                  setNotAuthenticatedModal(false);
+                  router.push("/login");
+                }}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md"
+              >
+                Sign In
+              </button>
+              <button
+                onClick={() => {
+                  setNotAuthenticatedModal(false);
+                  router.push("/register");
+                }}
+                className="flex-1 border border-purple-600 text-purple-600 hover:bg-purple-50 px-4 py-2 rounded-md"
+              >
+                Create Account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

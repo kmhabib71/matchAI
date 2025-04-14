@@ -106,6 +106,16 @@ export default function Navbar() {
 
           {/* Navigation Links */}
           <div className="flex items-center space-x-4">
+            {/* Blog Link - visible to all */}
+            <Link
+              href="/blog"
+              className={`${
+                shouldShowBackground ? "text-gray-700" : "text-white"
+              } hover:text-purple-600 transition-colors`}
+            >
+              Blog
+            </Link>
+
             {isAuthenticated && (
               <>
                 <Link
@@ -173,6 +183,12 @@ export default function Navbar() {
                         className="block px-4 py-2 text-sm text-gray-700 hover:bg-purple-100"
                       >
                         Manage Users
+                      </Link>
+                      <Link
+                        href="/admin/blog"
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-purple-100"
+                      >
+                        Manage Blog
                       </Link>
                     </div>
                   </div>
